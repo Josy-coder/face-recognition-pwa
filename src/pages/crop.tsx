@@ -29,6 +29,7 @@ export default function CropPage() {
         // Navigate to search page
         try {
             router.push('/search');
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             // Fallback to direct navigation if router fails
             window.location.href = '/search';

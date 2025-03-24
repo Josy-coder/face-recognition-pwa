@@ -16,6 +16,7 @@ export default function Home() {
         router.push({
           pathname: '/crop'
         });
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (error) {
         // Fallback to direct navigation if router fails
         window.location.href = '/crop';

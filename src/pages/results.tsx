@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +25,6 @@ interface SearchResult {
 }
 
 export default function Results() {
-    const router = useRouter();
     const [isLoading, setIsLoading] = useState(true);
     const [searchedImage, setSearchedImage] = useState<string | null>(null);
     const [searchedFolders, setSearchedFolders] = useState<string[]>([]);
