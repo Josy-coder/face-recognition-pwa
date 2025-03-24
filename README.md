@@ -1,40 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Face Recognition PWA
+
+A progressive web app for facial recognition and matching, built with Next.js and Tailwind CSS.
+
+## Features
+
+- 📷 Take photos using device camera
+- 🖼️ Upload images from device storage
+- ✂️ Crop and adjust facial images
+- 🔍 Search for facial matches across multiple folders
+- 📊 View match results with confidence scores
+- 📱 Responsive design for all devices
+- 🌓 Light and dark mode support
+- 📝 Search history tracking
 
 ## Getting Started
 
-First, run the development server:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/face-recognition-pwa.git
+   cd face-recognition-pwa
+   ```
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Run the development server:**
+   ```bash
+   npm run dev
+   ```
+
+4. **Open [http://localhost:3000](http://localhost:3000) in your browser**
+
+## Project Structure
+
+```
+face-recognition-pwa/
+├── public/                  # Static assets
+│   ├── profile-1.jpg        # Sample profile images for testing
+│   ├── profile-2.jpg
+│   ├── profile-3.jpg
+│   ├── profile-4.jpg
+│   └── manifest.json        # PWA manifest
+├── src/
+│   ├── components/          # UI components
+│   │   ├── capture/         # Image capture components
+│   │   │   ├── CameraCapture.tsx
+│   │   │   ├── FolderSelector.tsx
+│   │   │   └── ImageCropper.tsx
+│   │   ├── layout/          # Layout components
+│   │   │   └── layout.tsx
+│   │   └── ui/              # UI components
+│   │       ├── mode-toggle.tsx
+│   │       ├── loading-skeleton.tsx
+│   │       └── ...
+│   ├── pages/               # Next.js pages
+│   │   ├── index.tsx        # Home page
+│   │   ├── crop.tsx         # Image cropping page
+│   │   ├── search.tsx       # Folder selection page
+│   │   ├── results.tsx      # Results display page
+│   │   └── history.tsx      # Search history page
+│   ├── store/               # State management
+│   │   └── search-store.ts
+│   └── styles/              # Global styles
+│       └── globals.css
+└── package.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Technologies Used
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+- **Next.js**: React framework for building web applications
+- **TypeScript**: Type-safe JavaScript
+- **Tailwind CSS**: Utility-first CSS framework
+- **Zustand**: State management
+- **React Image Crop**: Image cropping functionality
+- **React Webcam**: Camera access and photo capture
+- **Sonner**: Toast notifications
+- **Date-fns**: Date utilities
+- **next-themes**: Theme management for dark/light mode
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+## Workflow
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+1. **Capture**: Take a photo with your camera or upload an image
+2. **Crop**: Adjust the facial area with the cropping tool
+3. **Search**: Select folders to search for matching faces
+4. **Results**: View matching results with confidence scores
+5. **History**: Review previous searches and results
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Development Notes
 
-## Learn More
+- Create necessary profile images in the public folder (profile-1.jpg, profile-2.jpg, etc.) for testing
+- The app uses localStorage for state persistence between pages to avoid URL size limitations
+- For production use, the mock data should be replaced with actual API calls to a facial recognition service
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
