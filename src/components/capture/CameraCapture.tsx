@@ -81,7 +81,7 @@ export default function CameraCapture({ onCapture }: CameraCaptureProps) {
     };
 
     return (
-        <Card className=" mx-auto border-slate-200 dark:border-slate-700 md:max-w-[400px] overflow-hidden">
+        <Card className="border-slate-200 dark:border-slate-700 md:max-w-full overflow-hidden">
             <CardContent className="p-6">
                 <Tabs
                     defaultValue="camera"
