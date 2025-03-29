@@ -7,10 +7,38 @@ const pwaConfig = withPWA({
   disable: process.env.NODE_ENV === 'development'
 });
 
-export default {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   ...pwaConfig,
   reactStrictMode: true,
   images: {
-    domains: ['expertum.ai'],
+    domains: [],
+  },
+  env: {
+    AWS_REGION: process.env.AWS_REGION,
+  },
+  // Configure headers to enable PWA features
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
+          },
+          {
+            key: "X-XSS-Protection",
+            value: "1; mode=block",
+          },
+        ],
+      },
+    ];
   },
 };
+
+export default nextConfig;

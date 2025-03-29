@@ -7,6 +7,7 @@ import Layout from '@/components/layout/layout';
 import FolderSelector from '@/components/capture/FolderSelector';
 import LoadingSkeleton from '@/components/loading';
 import { useSearchStore } from '@/store/search-store';
+import { rekognitionService } from '@/services/rekognition-service';
 
 export default function SearchPage() {
     const router = useRouter();
@@ -15,7 +16,29 @@ export default function SearchPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [searchProgress, setSearchProgress] = useState(0);
+    const [collections, setCollections] = useState<string[]>([]);
+    const [availableCollections, setAvailableCollections] = useState<{id: string, folder: string}[]>([]);
     const { setCurrentImage } = useSearchStore();
+
+    // Fetch available collections when component mounts
+    useEffect(() => {
+        const fetchCollections = async () => {
+            try {
+                const response = await fetch('/api/collections?public=true');
+                if (response.ok) {
+                    const data = await response.json();
+                    setAvailableCollections(data.collections || []);
+                } else {
+                    console.error('Failed to fetch collections');
+                }
+            } catch (error) {
+                console.error('Error fetching collections:', error);
+            }
+        };
+
+        fetchCollections();
+    }, []);
 
     useEffect(() => {
         // First check if we have an image in the URL
@@ -41,9 +64,19 @@ export default function SearchPage() {
 
     const handleFolderSelect = (folderPaths: string[]) => {
         setSelectedFolders(folderPaths);
+
+        // Map selected folders to AWS collections using the real collection data
+        const selectedCollections = folderPaths
+            .map(folder => {
+                const match = availableCollections.find(col => col.folder === folder);
+                return match ? match.id : null;
+            })
+            .filter(Boolean) as string[];
+
+        setCollections(selectedCollections);
     };
 
-    const handleSearch = () => {
+    const handleSearch = async () => {
         if (selectedFolders.length === 0) {
             toast.error("Please select at least one folder to search", {
                 closeButton: true,
@@ -58,7 +91,16 @@ export default function SearchPage() {
             return;
         }
 
+        // Check if we have valid collections for the selected folders
+        if (collections.length === 0) {
+            toast.error("No valid collections found for the selected folders", {
+                closeButton: true,
+            });
+            return;
+        }
+
         setIsSearching(true);
+        setSearchProgress(10);
 
         // Show analyzing animation
         toast.info("Analyzing image...", {
@@ -68,11 +110,50 @@ export default function SearchPage() {
         // Store selected folders in localStorage
         localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(selectedFolders));
 
-        // For testing purposes, let's use a shorter timeout
-        setTimeout(() => {
-            // Navigate without large query params
-            window.location.href = '/results';
-        }, 1000);
+        try {
+            // Search each collection for faces
+            let allResults: any[] = [];
+
+            for (let i = 0; i < collections.length; i++) {
+                const collectionId = collections[i];
+                const progress = 10 + Math.floor((i / collections.length) * 80);
+                setSearchProgress(progress);
+
+                const result = await rekognitionService.searchFacesByImage(
+                    imageSrc,
+                    collectionId,
+                    10, // maxFaces
+                    70  // faceMatchThreshold
+                );
+
+                if (result && result.faceMatches && result.faceMatches.length > 0) {
+                    // Add folder info to each result
+                    const resultsWithFolder = result.faceMatches.map(match => {
+                        const folderInfo = availableCollections.find(col => col.id === collectionId);
+                        return {
+                            ...match,
+                            folder: folderInfo?.folder || 'Unknown'
+                        };
+                    });
+
+                    allResults = [...allResults, ...resultsWithFolder];
+                }
+            }
+
+            // Store the results in localStorage for the results page
+            localStorage.setItem('faceRecog_searchResults', JSON.stringify(allResults));
+
+            setSearchProgress(100);
+
+            // Navigate to results page
+            setTimeout(() => {
+                window.location.href = '/results';
+            }, 500);
+        } catch (error) {
+            console.error('Search error:', error);
+            toast.error('An error occurred during search');
+            setIsSearching(false);
+        }
     };
 
     const handleBack = () => {
@@ -133,7 +214,7 @@ export default function SearchPage() {
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Searching...
+                            Searching... {searchProgress}%
                         </div>
                     ) : "Search"}
                 </Button>

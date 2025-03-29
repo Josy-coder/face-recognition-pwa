@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import dynamic from 'next/dynamic';
+
+// Dynamically import the PWA prompt component with SSR disabled
+const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt'), {
+    ssr: false,
+});
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -15,6 +21,13 @@ export default function Layout({
                                    showHistory = true,
                                    showNewSearch = false
                                }: LayoutProps) {
+    const [mounted, setMounted] = useState(false);
+
+    // Only show the PWA prompt after initial client-side render
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100">
             <header className="border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
@@ -47,6 +60,9 @@ export default function Layout({
                 )}
                 {children}
             </main>
+
+            {/* Only show PWA install prompt on client side */}
+            {mounted && <PWAInstallPrompt />}
         </div>
     );
 }

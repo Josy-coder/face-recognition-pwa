@@ -80,7 +80,7 @@ export default function HistoryPage() {
                         variant="outline"
                         size="sm"
                         onClick={clearHistory}
-                        className="text-destructive border-destructive/20 hover:bg-destructive/10"
+                        className="text-destructive border-destructive/20 bg-accent hover:bg-destructive/10"
                     >
                         <Trash2 size={16} className="mr-2" />
                         Clear History
@@ -161,7 +161,7 @@ export default function HistoryPage() {
                                                         e.stopPropagation();
                                                         toggleExpand(record.id);
                                                     }}
-                                                    className="flex items-center gap-1"
+                                                    className="flex items-center gap-1 bg-white"
                                                 >
                                                     {expandedRecord === record.id ? (
                                                         <>Hide Matches <ChevronUp size={16} /></>

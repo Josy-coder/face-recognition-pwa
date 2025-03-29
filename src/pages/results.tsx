@@ -6,22 +6,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Layout from '@/components/layout/layout';
 import LoadingSkeleton from '@/components/loading';
-import { useSearchStore } from '@/store/search-store';
+import { useSearchStore, SearchResult } from '@/store/search-store';
 
-interface SearchResult {
-    id: string;
-    name: string;
-    imageSrc: string;
-    matchConfidence: number;
-    details: {
-        path: string;
-        additionalInfo?: string;
-        title?: string;
-        department?: string;
-        email?: string;
-        phone?: string;
-        [key: string]: unknown;
+interface AWSFaceMatch {
+    FaceId: string;
+    Similarity: number;
+    ExternalImageId?: string;
+    Face?: {
+        FaceId: string;
+        ExternalImageId?: string;
+        Confidence: number;
+        ImageId?: string;
     };
+    folder?: string;
 }
 
 export default function Results() {
@@ -38,76 +35,85 @@ export default function Results() {
         // Get data from localStorage
         const storedImage = localStorage.getItem('faceRecog_searchImage');
         let parsedFolders: string[] = [];
+        let awsResults: AWSFaceMatch[] = [];
 
         try {
             const storedFolders = localStorage.getItem('faceRecog_selectedFolders');
             if (storedFolders) {
                 parsedFolders = JSON.parse(storedFolders);
             }
+
+            const storedResults = localStorage.getItem('faceRecog_searchResults');
+            if (storedResults) {
+                awsResults = JSON.parse(storedResults);
+            }
         } catch (e) {
-            console.error('Error parsing folders from localStorage:', e);
+            console.error('Error parsing data from localStorage:', e);
         }
 
         if (storedImage) {
             setSearchedImage(storedImage);
             setSearchedFolders(parsedFolders);
 
-            // Simulate API call to expertum.ai
+            // Simulate API call completion (in production this would be real loading time)
             setIsLoading(true);
             setAnalysisComplete(false);
 
-            // Mock data for demonstration
-            const mockResults: SearchResult[] = [
-                {
-                    id: '1',
-                    name: 'John Smith',
-                    imageSrc: '/profile-1.jpg',
-                    matchConfidence: 98.7,
-                    details: {
-                        path: 'Employees/Engineering',
-                        title: 'Senior Developer',
-                        department: 'Engineering',
-                        email: 'john.smith@example.com',
-                        phone: '+1 (555) 123-4567'
-                    }
-                },
-                {
-                    id: '2',
-                    name: 'Sarah Johnson',
-                    imageSrc: '/profile-2.jpg',
-                    matchConfidence: 87.2,
-                    details: {
-                        path: 'Employees/Marketing',
-                        title: 'Marketing Manager',
-                        department: 'Marketing',
-                        email: 'sarah.j@example.com',
-                        phone: '+1 (555) 987-6543'
-                    }
-                },
-                {
-                    id: '3',
-                    name: 'Michael Wong',
-                    imageSrc: '/profile-3.jpg',
-                    matchConfidence: 72.5,
-                    details: {
-                        path: 'Employees/Sales',
-                        title: 'Sales Representative',
-                        department: 'Sales',
-                        email: 'm.wong@example.com',
-                        phone: '+1 (555) 456-7890'
-                    }
-                }
-            ];
-
-            // Show analysis animation for 2 seconds
+            // Process results from AWS Rekognition
             setTimeout(() => {
                 setAnalysisComplete(true);
 
-                // Then show results after another second
                 setTimeout(() => {
-                    setResults(mockResults);
-                    if (mockResults.length > 0) {
-                        setSelectedResult(mockResults[0]);
+                    // Transform AWS results to our application's format
+                    const processedResults: SearchResult[] = awsResults.map((match, index) => {
+                        // Use the ExternalImageId that was set when the face was indexed in the collection
+                        // This would typically contain person information like name, department, etc.
+                        const externalId = match.ExternalImageId || match.Face?.ExternalImageId;
+                        let personInfo = null;
+
+                        // Try to parse as JSON if it looks like JSON, otherwise use as-is
+                        if (externalId) {
+                            try {
+                                // Only try to parse if it looks like it might be JSON
+                                if (externalId.startsWith('{') && externalId.endsWith('}')) {
+                                    personInfo = JSON.parse(externalId);
+                                }
+                            } catch (e) {
+
+                                console.log(e, 'Failed to parse externalId as JSON, using as plain string');
+                            }
+                        }
+
+                        // If we don't have personInfo from JSON, create a basic object
+                        if (!personInfo) {
+                            personInfo = {
+                                name: externalId || `Person ${index + 1}`,
+                            };
+                        }
+
+                        return {
+                            id: match.FaceId || `result-${index}`,
+                            name: personInfo.name || 'Unknown Person',
+                            // In a real application, you would store image URLs or retrieve images from AWS S3
+                            imageSrc: personInfo.imageSrc || '/profile-placeholder.jpg',
+                            matchConfidence: match.Similarity,
+                            details: {
+                                path: match.folder || 'Unknown',
+                                title: personInfo.title || 'Unknown Position',
+                                department: personInfo.department || 'Unknown Department',
+                                email: personInfo.email || '',
+                                phone: personInfo.phone || '',
+                                ...(personInfo.additionalDetails || {})
+                            }
+                        };
+                    });
+
+                    // Sort by confidence
+                    processedResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
+
+                    setResults(processedResults);
+                    if (processedResults.length > 0) {
+                        setSelectedResult(processedResults[0]);
                     }
 
                     // Add to search history
@@ -117,12 +123,12 @@ export default function Results() {
                         folder: parsedFolders.join(', ') || 'All folders',
                         includeSubfolders: true,
                         timestamp: new Date().toISOString(),
-                        results: mockResults,
+                        results: processedResults,
                     });
 
                     setIsLoading(false);
-                }, 1000);
-            }, 2000);
+                }, 500);
+            }, 1000);
         } else {
             // If no image in localStorage, show error state
             setIsLoading(false);
@@ -171,7 +177,7 @@ export default function Results() {
                                     </div>
                                     <h3 className="text-lg font-semibold mb-2">Analyzing Image</h3>
                                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                                        Searching for matches in {searchedFolders.length} folders
+                                        Searching for matches in AWS Rekognition
                                     </p>
                                     <Progress value={analysisComplete ? 100 : 75} className="h-2" />
                                 </CardContent>
@@ -357,10 +363,10 @@ export default function Results() {
                                     <Card
                                         key={result.id}
                                         className={`
-                      overflow-hidden transition-colors cursor-pointer 
-                      ${selectedResult?.id === result.id ? 'border-indigo-500 dark:border-indigo-400' : 'border-slate-200 dark:border-slate-700'} 
-                      hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md
-                    `}
+                                          overflow-hidden transition-colors cursor-pointer 
+                                          ${selectedResult?.id === result.id ? 'border-indigo-500 dark:border-indigo-400' : 'border-slate-200 dark:border-slate-700'} 
+                                          hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md
+                                        `}
                                         onClick={() => setSelectedResult(result)}
                                     >
                                         <CardContent className="p-4">
