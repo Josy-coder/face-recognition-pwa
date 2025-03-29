@@ -1,5 +1,3 @@
-I'll update the README to include comprehensive usage instructions for the application. Here's an expanded version that explains how to use the application:
-
 # FaceRecog - Facial Recognition Application with AWS Rekognition
 
 A progressive web application that leverages AWS Rekognition for face detection, comparison, and identification. This application allows users to capture or upload images, crop faces, and search for matches against collections in AWS Rekognition.
