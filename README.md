@@ -1,3 +1,5 @@
+I'll update the README to include comprehensive usage instructions for the application. Here's an expanded version that explains how to use the application:
+
 # FaceRecog - Facial Recognition Application with AWS Rekognition
 
 A progressive web application that leverages AWS Rekognition for face detection, comparison, and identification. This application allows users to capture or upload images, crop faces, and search for matches against collections in AWS Rekognition.
@@ -7,7 +9,17 @@ A progressive web application that leverages AWS Rekognition for face detection,
 - [Features](#features)
 - [Architecture Overview](#architecture-overview)
 - [Setup](#setup)
-- [Admin Usage](#admin-usage)
+- [User Guide](#user-guide)
+   - [Capturing a Face](#capturing-a-face)
+   - [Cropping a Face](#cropping-a-face)
+   - [Searching for Matches](#searching-for-matches)
+   - [Viewing Results](#viewing-results)
+   - [Search History](#search-history)
+   - [Installing as PWA](#installing-as-pwa)
+- [Admin Guide](#admin-guide)
+   - [Managing Collections](#managing-collections)
+   - [Adding Faces to Collections](#adding-faces-to-collections)
+   - [Organizing Collections](#organizing-collections)
 - [Known Issues and Solutions](#known-issues-and-solutions)
 - [Collection to Folder Mapping](#collection-to-folder-mapping)
 - [Extending the Application](#extending-the-application)
@@ -68,13 +80,104 @@ The application uses:
    npm start
    ```
 
-## Admin Usage
+## User Guide
 
-1. Access the admin panel at `/admin`
-2. Log in using the credentials from your environment variables
-3. Create collections that correspond to your folder structure
-4. Add faces to collections by capturing or uploading images
-5. Provide identifiers for faces to make them searchable
+### Capturing a Face
+
+1. **Access the app**: Open the application in your browser or PWA
+2. **Start capture**: You'll be presented with the home screen featuring two options:
+   - **Camera**: Activate your device's camera to take a photo
+   - **Upload**: Select an existing image from your device
+3. **Take or select photo**:
+   - When using the camera, position the face within the circular guide and click "Take Photo"
+   - When uploading, select an image file containing a face
+4. **Automatic navigation**: Once a face is captured or uploaded, you'll be directed to the cropping page
+
+### Cropping a Face
+
+1. **Adjust crop area**: Use the circular cropping tool to focus on the face
+   - Drag to reposition the crop area
+   - Ensure the face is centered for best results
+2. **Confirm crop**: Click the "Confirm" button when satisfied with the crop
+3. **Cancel option**: Click "Cancel" to return to the capture screen and start over
+
+### Searching for Matches
+
+1. **Select folders**: After cropping, you'll see the search page with:
+   - Your cropped face image
+   - A folder selection interface
+2. **Choose search scope**: Select one or more folders to search through
+   - Folders correspond to AWS Rekognition collections
+   - Select parent folders to include all subfolders
+3. **Initiate search**: Click the "Search" button to begin face matching
+4. **View progress**: A progress indicator shows the search status across selected folders
+
+### Viewing Results
+
+1. **Results display**: After searching, you'll see a results page with:
+   - Your search image
+   - The best match (if found)
+   - Additional potential matches (if any)
+2. **Match details**: For each match, you'll see:
+   - The person's photo (if available)
+   - Name and title information
+   - Match confidence percentage
+   - Color-coded confidence indicator
+3. **Details tab**: View additional information about the matched person
+   - Department, email, phone, etc.
+   - Location information showing which folder/collection the match was found in
+4. **No matches**: If no matches are found, you'll see a "No Matching Results" message with an option to try again
+
+### Search History
+
+1. **Access history**: Click "History" in the navigation bar to view past searches
+2. **History items**: Each history item shows:
+   - The search image you used
+   - When the search was performed
+   - The number of matches found
+3. **View details**: Click on a history item to expand it and see match information
+4. **Review results**: Click "View Results" to revisit the full results page for that search
+5. **Delete entries**: Remove individual entries or clear the entire history
+
+### Installing as PWA
+
+1. **Installation prompt**: On compatible devices, you'll see an "Install App" banner
+2. **Install process**: Click "Install App" and follow the device-specific prompts
+3. **Standalone mode**: Once installed, the app will run in standalone mode with:
+   - Full-screen experience
+   - Offline capabilities
+   - Local camera access
+
+## Admin Guide
+
+### Managing Collections
+
+1. **Access admin panel**: Go to `/admin` in your browser
+2. **Authentication**: Log in using the admin credentials from your environment variables
+3. **View collections**: See a list of all AWS Rekognition collections
+4. **Create collection**:
+   - Enter a Collection ID (e.g., "employees-collection")
+   - Optionally specify a folder path (e.g., "Employees")
+   - Click "Create Collection"
+5. **Delete collections**: Remove collections using the trash icon (use with caution - deletion is permanent)
+
+### Adding Faces to Collections
+
+1. **Select collection**: Click on a collection from the list
+2. **Navigate to "Add Face" tab**: This tab provides face capture functionality
+3. **External Image ID**: Enter a name or identifier for the person
+   - Use simple alphanumeric identifiers (e.g., "JohnSmith")
+   - This will help identify matches later
+4. **Capture or upload**: Take a photo or upload an image containing a face
+5. **Add to collection**: Click "Add Face to Collection" to index the face in AWS Rekognition
+6. **Confirmation**: You'll receive confirmation that the face was added successfully
+
+### Organizing Collections
+
+1. **Collection structure**: Collections can be organized to match your folder structure
+2. **Associate folders**: When creating collections, specify the folder path
+3. **View associations**: The folder path appears in the collection details
+4. **Modify mapping**: Update collection-to-folder mappings by creating a new collection with the same name
 
 ## Known Issues and Solutions
 
@@ -110,6 +213,7 @@ The application uses:
 
 3. **Short-term Workaround**:
    - Use a predefined set of profile images as placeholders
+   - Create a mapping between face IDs and local image assets
 
 ### Issue: ExternalImageId Validation Error
 
@@ -145,17 +249,17 @@ The application maps AWS Rekognition collections to UI folders to create an intu
 
 ```javascript
 const COLLECTION_TO_FOLDER_MAP = {
-  'employees-collection': 'Employees',
-  'engineering-collection': 'Employees/Engineering',
-  'marketing-collection': 'Employees/Marketing',
-  'sales-collection': 'Employees/Sales',
-  'customers-collection': 'Customers',
-  'enterprise-collection': 'Customers/Enterprise',
-  'smb-collection': 'Customers/SMB',
-  'events-collection': 'Events',
-  'events-2023-collection': 'Events/2023',
-  'events-2024-collection': 'Events/2024',
-  'visitors-collection': 'Visitors'
+   'employees-collection': 'Employees',
+   'engineering-collection': 'Employees/Engineering',
+   'marketing-collection': 'Employees/Marketing',
+   'sales-collection': 'Employees/Sales',
+   'customers-collection': 'Customers',
+   'enterprise-collection': 'Customers/Enterprise',
+   'smb-collection': 'Customers/SMB',
+   'events-collection': 'Events',
+   'events-2023-collection': 'Events/2023',
+   'events-2024-collection': 'Events/2024',
+   'visitors-collection': 'Visitors'
 };
 ```
 
@@ -166,16 +270,16 @@ For production use, replace the in-memory mapping with a database solution:
 ```javascript
 // Example using MongoDB
 async function getCollectionFolder(collectionId) {
-  const mapping = await db.collection('collection_mappings').findOne({ collectionId });
-  return mapping ? mapping.folderPath : null;
+   const mapping = await db.collection('collection_mappings').findOne({ collectionId });
+   return mapping ? mapping.folderPath : null;
 }
 
 async function setCollectionFolder(collectionId, folderPath) {
-  await db.collection('collection_mappings').updateOne(
-    { collectionId }, 
-    { $set: { folderPath } },
-    { upsert: true }
-  );
+   await db.collection('collection_mappings').updateOne(
+           { collectionId },
+           { $set: { folderPath } },
+           { upsert: true }
+   );
 }
 ```
 
@@ -191,32 +295,32 @@ import NextAuth from 'next-auth';
 import Providers from 'next-auth/providers';
 
 export default NextAuth({
-  providers: [
-    Providers.Credentials({
-      name: 'Credentials',
-      credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" }
+   providers: [
+      Providers.Credentials({
+         name: 'Credentials',
+         credentials: {
+            username: { label: "Username", type: "text" },
+            password: { label: "Password", type: "password" }
+         },
+         authorize: async (credentials) => {
+            // Validate credentials
+            if (credentials.username === 'user' && credentials.password === 'password') {
+               return { id: 1, name: 'User', email: 'user@example.com' };
+            }
+            return null;
+         }
+      })
+   ],
+   callbacks: {
+      jwt: async (token, user) => {
+         if (user) token.id = user.id;
+         return token;
       },
-      authorize: async (credentials) => {
-        // Validate credentials
-        if (credentials.username === 'user' && credentials.password === 'password') {
-          return { id: 1, name: 'User', email: 'user@example.com' };
-        }
-        return null;
+      session: async (session, token) => {
+         session.user.id = token.id;
+         return session;
       }
-    })
-  ],
-  callbacks: {
-    jwt: async (token, user) => {
-      if (user) token.id = user.id;
-      return token;
-    },
-    session: async (session, token) => {
-      session.user.id = token.id;
-      return session;
-    }
-  }
+   }
 });
 ```
 
@@ -229,17 +333,3 @@ Use AWS S3 to store reference images for better match display:
 3. Store the S3 URL as metadata associated with each face
 4. Retrieve the image URL when displaying search results
 
-### Enhanced Match Confidence Visualization
-
-Add more detailed confidence metrics:
-
-```javascript
-function getConfidenceAnalysis(confidence) {
-  return {
-    level: confidence >= 90 ? 'Very High' : confidence >= 80 ? 'High' : confidence >= 70 ? 'Moderate' : 'Low',
-    color: confidence >= 90 ? 'green' : confidence >= 80 ? 'blue' : confidence >= 70 ? 'orange' : 'red',
-    falsePositiveRate: confidence >= 99 ? '< 0.1%' : confidence >= 95 ? '< 1%' : confidence >= 90 ? '< 5%' : '5-15%',
-    reliability: confidence >= 95 ? 'Highly Reliable' : confidence >= 85 ? 'Reliable' : confidence >= 75 ? 'Moderately Reliable' : 'Use with Caution',
-  };
-}
-```
