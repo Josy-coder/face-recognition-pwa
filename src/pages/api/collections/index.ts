@@ -1,3 +1,5 @@
+// pages/api/collections/index.ts
+
 import { NextApiRequest, NextApiResponse } from 'next';
 import {
     CreateCollectionCommand,
@@ -5,6 +7,7 @@ import {
     DeleteCollectionCommand
 } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
+import { s3Service } from '@/services/s3-service';
 
 // Simple auth middleware
 const isAdmin = (req: NextApiRequest) => {
@@ -36,8 +39,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
             // If this is a public request (has 'public' query param)
             if (req.query.public !== undefined) {
-                // Map collections to folders for public use
-                const collectionsWithFolders = collectionIds.map(id => {
+                // Get S3 folder structure for mapping
+                const rootFolders = await s3Service.listFolders('');
+
+                // Map collections to folders
+                const collectionsWithFolders = await Promise.all(collectionIds.map(async id => {
                     // If we have a predefined mapping, use it
                     if (COLLECTION_TO_FOLDER_MAP[id]) {
                         return {
@@ -46,42 +52,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         };
                     }
 
-                    // Otherwise create a folder path based on collection ID
-                    let folder = id;
+                    // Check if there's a matching S3 folder
+                    const matchingFolder = rootFolders.find(folder => {
+                        const folderName = folder.replace(/\/$/, ''); // Remove trailing slash
+                        return folderName === id || folderName.replace(/[-_]/g, '') === id.replace(/[-_]/g, '');
+                    });
 
-                    // Replace common collection name patterns with folder paths
-                    if (id.endsWith('-collection')) {
-                        folder = id.replace('-collection', '');
-                    }
-
-                    // Handle departmental collections
-                    if (folder.includes('engineering')) {
-                        return { id, folder: 'Employees/Engineering' };
-                    } else if (folder.includes('marketing')) {
-                        return { id, folder: 'Employees/Marketing' };
-                    } else if (folder.includes('sales')) {
-                        return { id, folder: 'Employees/Sales' };
-                    } else if (folder.includes('employees')) {
-                        return { id, folder: 'Employees' };
-                    } else if (folder.includes('enterprise')) {
-                        return { id, folder: 'Customers/Enterprise' };
-                    } else if (folder.includes('smb')) {
-                        return { id, folder: 'Customers/SMB' };
-                    } else if (folder.includes('customers')) {
-                        return { id, folder: 'Customers' };
-                    } else if (folder.includes('2023')) {
-                        return { id, folder: 'Events/2023' };
-                    } else if (folder.includes('2024')) {
-                        return { id, folder: 'Events/2024' };
-                    } else if (folder.includes('events')) {
-                        return { id, folder: 'Events' };
-                    } else if (folder.includes('visitors')) {
-                        return { id, folder: 'Visitors' };
+                    if (matchingFolder) {
+                        // Store the mapping for future use
+                        COLLECTION_TO_FOLDER_MAP[id] = matchingFolder;
+                        return { id, folder: matchingFolder };
                     }
 
                     // Default case - use collection ID as folder
-                    return { id, folder };
-                });
+                    return { id, folder: id };
+                }));
 
                 return res.status(200).json({
                     collections: collectionsWithFolders,
@@ -94,8 +79,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     return res.status(401).json({ message: 'Unauthorized' });
                 }
 
+                // For admin, also get S3 folders and include metadata
+                const rootFolders = await s3Service.listFolders('');
+
+                // Enhanced collections with folder info and image counts
+                const enhancedCollections = await Promise.all(collectionIds.map(async id => {
+                    // Find matching S3 folder
+                    const matchingFolder = rootFolders.find(folder => {
+                        const folderName = folder.replace(/\/$/, ''); // Remove trailing slash
+                        return folderName === id || folderName.replace(/[-_]/g, '') === id.replace(/[-_]/g, '');
+                    });
+
+                    const folderPath = matchingFolder || COLLECTION_TO_FOLDER_MAP[id] || id;
+
+                    // Get image count in this folder
+                    const images = await s3Service.listImages(folderPath);
+
+                    return {
+                        id,
+                        folderPath,
+                        imageCount: images.length
+                    };
+                }));
+
                 return res.status(200).json({
-                    collections: collectionIds,
+                    collections: enhancedCollections,
                     nextToken: response.NextToken || null,
                 });
             }
@@ -119,18 +127,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 return res.status(400).json({ message: 'Collection ID is required' });
             }
 
+            // Create the Rekognition collection
             const command = new CreateCollectionCommand({
                 CollectionId: collectionId,
             });
 
             await rekognition.send(command);
 
-            // Store the collection-to-folder mapping if provided
-            if (folderPath) {
-                COLLECTION_TO_FOLDER_MAP[collectionId] = folderPath;
-            }
+            // Create the S3 folder structure
+            const s3FolderPath = folderPath || collectionId;
+            await s3Service.createFolderStructure(s3FolderPath);
 
-            return res.status(201).json({ message: 'Collection created successfully', collectionId });
+            // Store the collection-to-folder mapping
+            COLLECTION_TO_FOLDER_MAP[collectionId] = s3FolderPath;
+
+            return res.status(201).json({
+                message: 'Collection created successfully',
+                collectionId,
+                folderPath: s3FolderPath
+            });
         } catch (error) {
             console.error('Error creating collection:', error);
             return res.status(500).json({ message: 'Error creating collection', error: (error as Error).message });
@@ -146,11 +161,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 return res.status(400).json({ message: 'Valid collection ID is required' });
             }
 
+            // Delete the Rekognition collection
             const command = new DeleteCollectionCommand({
                 CollectionId: collectionId,
             });
 
             await rekognition.send(command);
+
+            // Note: We're not deleting the S3 folder contents for safety
+            // In a production app, you might want to prompt the user if they want to delete S3 content too
 
             // Remove from mapping if it exists
             if (COLLECTION_TO_FOLDER_MAP[collectionId]) {

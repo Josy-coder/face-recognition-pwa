@@ -8,7 +8,7 @@ import LoadingSkeleton from '@/components/loading';
 import { useSearchStore } from '@/store/search-store';
 import { SearchRecord } from '@/store/search-store';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 export default function HistoryPage() {
     const router = useRouter();
@@ -26,15 +26,14 @@ export default function HistoryPage() {
     }, []);
 
     const handleViewDetails = (record: SearchRecord) => {
+        // Store the selected record data in localStorage for the results page
+        localStorage.setItem('faceRecog_searchImage', record.imageSrc);
+        localStorage.setItem('faceRecog_searchResults', JSON.stringify(record.results));
+        localStorage.setItem('faceRecog_selectedFolders', JSON.stringify([record.folder]));
+
+        // Navigate to results page
         setIsLoading(true); // Show loading state when navigating
-        router.push({
-            pathname: '/results',
-            query: {
-                image: record.imageSrc,
-                folders: JSON.stringify([record.folder]),
-                fromHistory: true
-            }
-        });
+        router.push('/results');
     };
 
     const toggleExpand = (id: string) => {
@@ -48,6 +47,17 @@ export default function HistoryPage() {
     const handleRemoveRecord = (id: string, e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent expansion toggle
         removeSearchRecord(id);
+    };
+
+    const handleRetrySearch = (record: SearchRecord, e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent expansion toggle
+
+        // Store the image in localStorage for the search page
+        localStorage.setItem('faceRecog_searchImage', record.imageSrc);
+
+        // Navigate to search page
+        setIsLoading(true);
+        router.push('/search');
     };
 
     const getConfidenceLevelColor = (confidence: number): string => {
@@ -117,9 +127,9 @@ export default function HistoryPage() {
                         >
                             <CardHeader className="p-4 pb-0">
                                 <CardTitle className="text-md flex justify-between items-center">
-                  <span className="text-base font-medium">
-                    {formatDistanceToNow(new Date(record.timestamp), { addSuffix: true })}
-                  </span>
+                                    <span className="text-base font-medium">
+                                        {formatDistanceToNow(new Date(record.timestamp), { addSuffix: true })}
+                                    </span>
                                     <Badge variant="outline">
                                         {record.results.length} {record.results.length === 1 ? 'match' : 'matches'}
                                     </Badge>
@@ -161,13 +171,23 @@ export default function HistoryPage() {
                                                         e.stopPropagation();
                                                         toggleExpand(record.id);
                                                     }}
-                                                    className="flex items-center gap-1 bg-white"
+                                                    className="flex items-center gap-1 bg-white dark:bg-slate-900"
                                                 >
                                                     {expandedRecord === record.id ? (
                                                         <>Hide Matches <ChevronUp size={16} /></>
                                                     ) : (
                                                         <>Show Matches <ChevronDown size={16} /></>
                                                     )}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={(e) => handleRetrySearch(record, e)}
+                                                    className="text-primary flex items-center gap-1"
+                                                    title="Run this search again"
+                                                >
+                                                    <RefreshCw size={14} />
+                                                    Retry
                                                 </Button>
                                                 <Button
                                                     size="sm"

@@ -3,14 +3,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Plus, Trash2, RefreshCw, Upload, FileText, FolderOpen } from 'lucide-react';
 import { toast } from 'sonner';
-import CameraCapture from '@/components/capture/CameraCapture';
 import { Progress } from '@/components/ui/progress';
+import CameraCapture from '@/components/capture/CameraCapture';
+import S3FolderBrowser from '@/components/admin/S3FolderBrowser';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface Collection {
     id: string;
-    faceCount?: number;
+    folderPath?: string;
+    imageCount?: number;
 }
 
 interface Face {
@@ -18,6 +21,8 @@ interface Face {
     ExternalImageId?: string;
     ImageId?: string;
     Confidence?: number;
+    ImageURL?: string;
+    Metadata?: any;
 }
 
 const AdminPanel = () => {
@@ -26,6 +31,7 @@ const AdminPanel = () => {
     const [password, setPassword] = useState('');
     const [collections, setCollections] = useState<Collection[]>([]);
     const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+    const [selectedFolderPath, setSelectedFolderPath] = useState<string>('');
     const [faces, setFaces] = useState<Face[]>([]);
     const [newCollectionId, setNewCollectionId] = useState('');
     const [newCollectionFolder, setNewCollectionFolder] = useState('');
@@ -34,6 +40,9 @@ const AdminPanel = () => {
     const [externalImageId, setExternalImageId] = useState('');
     const [progress, setProgress] = useState(0);
     const [activeTab, setActiveTab] = useState('collections');
+    const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+    const [showFileBrowser, setShowFileBrowser] = useState(false);
+    const [currentImagePaths, setCurrentImagePaths] = useState<string[]>([]);
 
     // Base64 encode credentials for Basic Auth
     const getAuthHeader = () => {
@@ -70,12 +79,10 @@ const AdminPanel = () => {
             }
 
             const data = await response.json();
-            const collectionsList = data.collections.map((id: string) => ({ id }));
-            setCollections(collectionsList);
+            setCollections(data.collections || []);
 
-            if (collectionsList.length > 0 && !selectedCollection) {
-                setSelectedCollection(collectionsList[0].id);
-            }
+            // Don't automatically select the first collection
+            // This is a UI improvement requested by the user
         } catch (error) {
             console.error('Error fetching collections:', error);
             toast.error('Failed to fetch collections');
@@ -101,7 +108,7 @@ const AdminPanel = () => {
                 },
                 body: JSON.stringify({
                     collectionId: newCollectionId,
-                    folderPath: newCollectionFolder || undefined
+                    folderPath: selectedFolderPath || newCollectionId
                 }),
             });
 
@@ -111,10 +118,11 @@ const AdminPanel = () => {
                 throw new Error('Failed to create collection');
             }
 
+            const data = await response.json();
             setProgress(100);
-            toast.success(`Collection "${newCollectionId}" created successfully`);
+            toast.success(`Collection "${newCollectionId}" created successfully in folder "${data.folderPath}"`);
             setNewCollectionId('');
-            setNewCollectionFolder('');
+            setSelectedFolderPath('');
             fetchCollections();
         } catch (error) {
             console.error('Error creating collection:', error);
@@ -180,6 +188,14 @@ const AdminPanel = () => {
 
             const data = await response.json();
             setFaces(data.faces || []);
+
+            // Update current image paths
+            const imagePaths = (data.faces || [])
+                .filter((face: Face) => face.ImageURL)
+                .map((face: Face) => face.ImageURL as string);
+
+            setCurrentImagePaths(imagePaths);
+
             setProgress(100);
         } catch (error) {
             console.error('Error fetching faces:', error);
@@ -198,6 +214,10 @@ const AdminPanel = () => {
         setLoading(true);
         setProgress(10);
         try {
+            // Find the collection's folder path
+            const collection = collections.find(c => c.id === selectedCollection);
+            const folderPath = collection?.folderPath || selectedCollection;
+
             // Prepare metadata to be stored with face
             // AWS Rekognition requires ExternalImageId to only contain alphanumeric characters,
             // underscores, hyphens, periods, and colons
@@ -230,7 +250,10 @@ const AdminPanel = () => {
                 body: JSON.stringify({
                     image: captureImage,
                     externalImageId: sanitizedId,
-                    additionalInfo: additionalInfo
+                    additionalInfo: {
+                        ...additionalInfo,
+                        folderPath
+                    }
                 }),
             });
 
@@ -262,6 +285,100 @@ const AdminPanel = () => {
         }
     };
 
+    const handleBatchUpload = async () => {
+        if (!selectedCollection || uploadedFiles.length === 0) {
+            toast.error('Collection and files are required');
+            return;
+        }
+
+        setLoading(true);
+        setProgress(10);
+
+        try {
+            // Find the collection's folder path
+            const collection = collections.find(c => c.id === selectedCollection);
+            const folderPath = collection?.folderPath || selectedCollection;
+
+            // Process each file
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (let i = 0; i < uploadedFiles.length; i++) {
+                const file = uploadedFiles[i];
+
+                // Update progress
+                const fileProgress = 10 + Math.floor((i / uploadedFiles.length) * 80);
+                setProgress(fileProgress);
+
+                try {
+                    // Convert file to base64
+                    const base64 = await fileToBase64(file);
+
+                    // Create external ID from filename
+                    const fileName = file.name.replace(/\.[^/.]+$/, ""); // remove extension
+                    const sanitizedId = fileName.replace(/[^a-zA-Z0-9_\-\.:]*/g, '');
+
+                    // Upload to S3 and index in Rekognition
+                    const response = await fetch(`/api/collections/${selectedCollection}/faces`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': getAuthHeader(),
+                        },
+                        body: JSON.stringify({
+                            image: base64,
+                            externalImageId: sanitizedId,
+                            additionalInfo: {
+                                name: fileName,
+                                originalFilename: file.name,
+                                folderPath
+                            }
+                        }),
+                    });
+
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                    }
+                } catch (fileError) {
+                    console.error(`Error processing file ${file.name}:`, fileError);
+                    errorCount++;
+                }
+            }
+
+            setProgress(100);
+
+            if (successCount > 0) {
+                toast.success(`Successfully added ${successCount} faces to collection`);
+                // Refresh the faces list
+                fetchFaces(selectedCollection);
+            }
+
+            if (errorCount > 0) {
+                toast.error(`Failed to add ${errorCount} faces to collection`);
+            }
+
+            // Clear the file list
+            setUploadedFiles([]);
+        } catch (error) {
+            console.error('Error in batch upload:', error);
+            toast.error('Batch upload failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Helper function to convert file to base64
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
+    };
+
     const deleteFace = async (faceId: string) => {
         if (!selectedCollection) return;
 
@@ -289,8 +406,16 @@ const AdminPanel = () => {
                 throw new Error('Failed to delete face');
             }
 
+            const data = await response.json();
             setProgress(100);
-            toast.success('Face removed successfully');
+
+            // Show message based on whether S3 objects were also deleted
+            if (data.deletedS3Objects && data.deletedS3Objects.length > 0) {
+                toast.success(`Face removed and ${data.deletedS3Objects.length} S3 images deleted`);
+            } else {
+                toast.success('Face removed successfully');
+            }
+
             fetchFaces(selectedCollection);
         } catch (error) {
             console.error('Error deleting face:', error);
@@ -300,10 +425,43 @@ const AdminPanel = () => {
         }
     };
 
+    // Handle folder selection from S3FolderBrowser
+    const handleFolderSelect = (folderPath: string) => {
+        setSelectedFolderPath(folderPath);
+        setNewCollectionFolder(folderPath);
+    };
+
+    // Handle file drop for batch upload
+    const handleFileDrop = (files: File[]) => {
+        // Filter for image files
+        const imageFiles = files.filter(file =>
+            file.type.startsWith('image/') && file.size < 5 * 1024 * 1024 // 5MB limit
+        );
+
+        // Show warning if some files were rejected
+        if (imageFiles.length < files.length) {
+            toast.warning(`${files.length - imageFiles.length} files were rejected. Only images under 5MB are allowed.`);
+        }
+
+        setUploadedFiles(prev => [...prev, ...imageFiles]);
+    };
+
+    // Remove file from upload list
+    const removeFile = (index: number) => {
+        setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+    };
+
     // Update selected collection and fetch faces when changed
     useEffect(() => {
         if (selectedCollection) {
             fetchFaces(selectedCollection);
+
+            // Find the folder path for this collection
+            const collection = collections.find(c => c.id === selectedCollection);
+            if (collection && collection.folderPath) {
+                setSelectedFolderPath(collection.folderPath);
+            }
+
             setActiveTab('faces');
         }
     }, [selectedCollection]);
@@ -318,8 +476,14 @@ const AdminPanel = () => {
         if (!externalId) return 'Unnamed Face';
 
         try {
-            const data = JSON.parse(externalId);
-            return data.name || 'Unnamed Face';
+            // Check if it's a JSON string
+            if (externalId.startsWith('{') && externalId.endsWith('}')) {
+                const data = JSON.parse(externalId);
+                return data.name || 'Unnamed Face';
+            }
+
+            // Otherwise just use the ID directly, with some cleanup
+            return externalId.replace(/-/g, ' ').replace(/^face [\d]+$/, 'Unnamed Face');
         } catch {
             return externalId;
         }
@@ -400,13 +564,14 @@ const AdminPanel = () => {
                             <TabsTrigger value="collections">Collections</TabsTrigger>
                             <TabsTrigger value="faces" disabled={!selectedCollection}>Faces</TabsTrigger>
                             <TabsTrigger value="addFace" disabled={!selectedCollection}>Add Face</TabsTrigger>
+                            <TabsTrigger value="batchUpload" disabled={!selectedCollection}>Batch Upload</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="collections">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="flex flex-col gap-4">
                                     <div className="space-y-2">
-                                        <label htmlFor="new-collection" className="text-sm font-medium">Create New Collection</label>
+                                        <label htmlFor="new-collection" className="text-sm font-medium">Collection ID</label>
                                         <Input
                                             id="new-collection"
                                             value={newCollectionId}
@@ -415,22 +580,15 @@ const AdminPanel = () => {
                                         />
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <label htmlFor="collection-folder" className="text-sm font-medium">Associated Folder (Optional)</label>
-                                        <Input
-                                            id="collection-folder"
-                                            value={newCollectionFolder}
-                                            onChange={(e) => setNewCollectionFolder(e.target.value)}
-                                            placeholder="Folder path (e.g., Employees/Engineering)"
-                                        />
-                                        <p className="text-xs text-slate-500">
-                                            This helps map collections to folders in the search interface
-                                        </p>
-                                    </div>
+                                    <S3FolderBrowser
+                                        onSelectFolder={handleFolderSelect}
+                                        initialPath={selectedFolderPath}
+                                        authHeader={getAuthHeader()}
+                                    />
 
                                     <Button
                                         onClick={createCollection}
-                                        className="bg-primary hover:bg-primary/90 "
+                                        className="bg-primary hover:bg-primary/90 mt-4"
                                         disabled={loading || !newCollectionId}
                                     >
                                         <Plus size={16} className="mr-2" />
@@ -458,8 +616,14 @@ const AdminPanel = () => {
                                                 >
                                                     <div>
                                                         <div className="font-medium">{collection.id}</div>
-                                                        {collection.faceCount !== undefined && (
-                                                            <div className="text-sm text-slate-500">{collection.faceCount} faces</div>
+                                                        <div className="text-sm text-slate-500 flex items-center gap-1">
+                                                            <FolderOpen size={14} />
+                                                            {collection.folderPath || collection.id}
+                                                        </div>
+                                                        {collection.imageCount !== undefined && (
+                                                            <div className="text-xs text-slate-500 mt-1">
+                                                                {collection.imageCount} images
+                                                            </div>
                                                         )}
                                                     </div>
                                                     <Button
@@ -536,6 +700,17 @@ const AdminPanel = () => {
                                                                 <Trash2 size={16} />
                                                             </Button>
                                                         </div>
+
+                                                        {/* Display face image if available */}
+                                                        {face.ImageURL && (
+                                                            <div className="mt-3 border rounded-md overflow-hidden">
+                                                                <img
+                                                                    src={face.ImageURL}
+                                                                    alt={parseExternalId(face.ExternalImageId)}
+                                                                    className="w-full h-32 object-cover"
+                                                                />
+                                                            </div>
+                                                        )}
                                                     </CardContent>
                                                 </Card>
                                             ))}
@@ -616,9 +791,150 @@ const AdminPanel = () => {
                                 </div>
                             )}
                         </TabsContent>
+
+                        <TabsContent value="batchUpload">
+                            {selectedCollection && (
+                                <div className="space-y-6">
+                                    <div className="text-lg font-medium mb-2">
+                                        Batch Upload to Collection: {selectedCollection}
+                                    </div>
+
+                                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                                        Upload multiple face images at once. Each image will be indexed in the Rekognition collection
+                                        and stored in S3. The filename (without extension) will be used as the external ID.
+                                    </p>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <div>
+                                            <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-8 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                <div
+                                                    className="flex flex-col items-center justify-center cursor-pointer"
+                                                    onDragOver={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                    }}
+                                                    onDrop={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+
+                                                        // Get files from drop event
+                                                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                                                            handleFileDrop(Array.from(e.dataTransfer.files));
+                                                        }
+                                                    }}
+                                                >
+                                                    <Upload className="h-10 w-10 text-slate-500 dark:text-slate-400 mb-4" />
+                                                    <p className="mb-2 text-base font-medium text-slate-700 dark:text-slate-300">
+                                                        Drop files here or click to browse
+                                                    </p>
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                                                        Supported formats: JPG, PNG, JPEG (max 5MB per file)
+                                                    </p>
+                                                    <input
+                                                        type="file"
+                                                        id="file-upload"
+                                                        className="hidden"
+                                                        multiple
+                                                        accept="image/jpeg,image/jpg,image/png"
+                                                        onChange={(e) => {
+                                                            if (e.target.files) {
+                                                                handleFileDrop(Array.from(e.target.files));
+                                                            }
+                                                        }}
+                                                    />
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => document.getElementById('file-upload')?.click()}
+                                                    >
+                                                        <Upload size={16} className="mr-2" />
+                                                        Browse Files
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            {uploadedFiles.length > 0 && (
+                                                <Button
+                                                    className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                                                    disabled={loading}
+                                                    onClick={handleBatchUpload}
+                                                >
+                                                    {loading ? (
+                                                        <div className="flex items-center">
+                                                            <RefreshCw size={16} className="mr-2 animate-spin" />
+                                                            Uploading... {progress}%
+                                                        </div>
+                                                    ) : (
+                                                        `Upload ${uploadedFiles.length} Files to Collection`
+                                                    )}
+                                                </Button>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <h3 className="text-sm font-medium mb-3">Selected Files</h3>
+                                            <div className="border rounded-md overflow-hidden">
+                                                {uploadedFiles.length === 0 ? (
+                                                    <div className="p-4 text-center text-slate-500">
+                                                        No files selected
+                                                    </div>
+                                                ) : (
+                                                    <div className="max-h-96 overflow-y-auto">
+                                                        {uploadedFiles.map((file, index) => (
+                                                            <div
+                                                                key={`${file.name}-${index}`}
+                                                                className="flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-700 last:border-b-0"
+                                                            >
+                                                                <div className="flex items-center">
+                                                                    <FileText size={16} className="text-slate-500 mr-2" />
+                                                                    <div>
+                                                                        <p className="text-sm font-medium truncate max-w-xs">{file.name}</p>
+                                                                        <p className="text-xs text-slate-500">
+                                                                            {(file.size / 1024).toFixed(1)} KB
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => removeFile(index)}
+                                                                    className="text-red-500 hover:text-red-700 h-8 w-8 p-0"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </Button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </TabsContent>
                     </Tabs>
                 </CardContent>
             </Card>
+
+            {/* Image preview dialog */}
+            <Dialog>
+                <DialogTrigger asChild>
+                    {/* This is hidden, we'll trigger it programmatically */}
+                    <button className="hidden" id="image-preview-trigger">Open</button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Face Image</DialogTitle>
+                    </DialogHeader>
+                    <div className="aspect-square relative bg-slate-50 dark:bg-slate-800 rounded-md overflow-hidden">
+                        <img
+                            id="preview-image"
+                            src=""
+                            alt="Face Preview"
+                            className="w-full h-full object-contain"
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

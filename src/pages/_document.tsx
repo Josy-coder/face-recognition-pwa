@@ -5,7 +5,7 @@ export default function Document() {
         <Html lang="en">
             <Head>
                 <meta charSet="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                {/* Remove viewport meta tag from here - it's now in _app.tsx */}
                 <meta name="description" content="Face Recognition Application using AWS Rekognition" />
 
                 {/* PWA primary color */}

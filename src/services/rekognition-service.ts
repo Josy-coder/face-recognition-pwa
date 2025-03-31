@@ -10,6 +10,9 @@ export interface SearchResult {
         ImageId?: string;
     };
     ExternalImageId?: string;
+    imageSrc?: string;
+    folder?: string;
+    personInfo?: any;
 }
 
 export interface SearchFacesResponse {
@@ -34,6 +37,8 @@ class RekognitionService {
         faceMatchThreshold = 70
     ): Promise<SearchFacesResponse | null> {
         try {
+            console.log(`Searching for faces in collection ${collectionId} with threshold ${faceMatchThreshold}`);
+
             const response = await fetch('/api/search-faces', {
                 method: 'POST',
                 headers: {
@@ -49,10 +54,14 @@ class RekognitionService {
 
             if (!response.ok) {
                 const error = await response.json();
+                console.error('Search faces API error:', error);
                 throw new Error(error.message || 'Error searching for faces');
             }
 
-            return await response.json();
+            const result = await response.json();
+            console.log(`Found ${result.faceMatches?.length || 0} face matches`);
+
+            return result;
         } catch (error) {
             console.error('Error searching for faces:', error);
             toast.error('Failed to search for faces');
@@ -114,6 +123,40 @@ class RekognitionService {
         } catch (error) {
             console.error('Error fetching collections:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Index face in collection
+     */
+    async indexFace(
+        image: string,
+        collectionId: string,
+        externalImageId: string
+    ) {
+        try {
+            const response = await fetch('/api/index-face', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    image,
+                    collectionId,
+                    externalImageId,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Error indexing face');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error indexing face:', error);
+            toast.error('Failed to index face');
+            return null;
         }
     }
 }
