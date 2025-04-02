@@ -15,13 +15,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             region: process.env.AWS_LIVENESS_REGION || 'ap-northeast-1',
             identity: {
                 status: 'pending',
-                accountId: null,
-                error: null
+                accountId: null as string | null,
+                error: null as { name: string; message: string } | null
             },
             liveness: {
                 status: 'pending',
-                sessionId: null,
-                error: null
+                sessionId: null as string | null,
+                error: null as { name: string; message: string } | null
             }
         },
         environment: {
@@ -47,19 +47,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         diagnosticResults.aws.identity = {
             status: 'success',
-            accountId: identityResponse.Account,
+            accountId: identityResponse.Account || null,
             error: null
         };
         console.log('AWS Identity check succeeded:', identityResponse.Account);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Diagnostic AWS identity error:', error);
         diagnosticResults.aws.identity = {
             status: 'error',
             accountId: null,
-            error: {
-                name: error.name,
-                message: error.message
-            }
+            error: error instanceof Error ? { name: error.name, message: error.message } : { name: 'UnknownError', message: 'An unknown error occurred' }
         };
     }
 
@@ -84,18 +81,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         diagnosticResults.aws.liveness = {
             status: 'success',
-            sessionId: livenessResponse.SessionId,
+            sessionId: livenessResponse.SessionId || null,
             error: null
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Diagnostic Face Liveness error:', error);
         diagnosticResults.aws.liveness = {
             status: 'error',
             sessionId: null,
-            error: {
-                name: error.name,
-                message: error.message
-            }
+            error: error instanceof Error ? { name: error.name, message: error.message } : { name: 'UnknownError', message: 'An unknown error occurred' }
         };
     }
 
