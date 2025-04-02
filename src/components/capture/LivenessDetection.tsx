@@ -220,7 +220,6 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
         }
     };
 
-    // Handle errors from the FaceLivenessDetector
     const handleLivenessError = (error: any) => {
         console.error('Face liveness error:', error);
         setLivenessState(LivenessState.ERROR);
@@ -271,7 +270,7 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
                         </div>
                         <h3 className="text-lg font-semibold mb-2">Ready for Liveness Check</h3>
                         <p className="text-sm text-muted-foreground mb-6">
-                            Click the button below to start the liveness check. You'll be asked to follow some simple instructions.
+                            Click the button below to start the liveness check. You&#39;ll be asked to follow some simple instructions.
                         </p>
                         <Button
                             className="bg-primary hover:bg-primary/90"
@@ -334,7 +333,7 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
                         </div>
                         <h3 className="text-lg font-semibold mb-2">Liveness Check Passed</h3>
                         <p className="text-sm text-muted-foreground mb-2">
-                            You've successfully completed the liveness check!
+                            You&#39;ve successfully completed the liveness check!
                         </p>
                         {confidenceScore && (
                             <p className="text-xs text-muted-foreground mb-6">
