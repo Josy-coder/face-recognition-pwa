@@ -1,10 +1,27 @@
-import { useState, useRef, useEffect } from 'react';
+'use client';
+
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import Webcam from 'react-webcam';
 import { AlertCircle, CheckCircle, Loader2, RefreshCcw } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
+import { ThemeProvider } from '@aws-amplify/ui-react';
+import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
+import '@aws-amplify/ui-react/styles.css';
+
+// Confidence thresholds for liveness detection
+const CONFIDENCE_THRESHOLDS = {
+    HIGH: 90,    // Very confident - production-ready for high security
+    MEDIUM: 75,  // Reasonably confident - good for most applications
+    LOW: 60,     // Minimal confidence - might be suitable for testing
+    TESTING: 50  // For development only
+};
+
+
+const REQUIRED_CONFIDENCE = process.env.NODE_ENV === 'production'
+    ? CONFIDENCE_THRESHOLDS.MEDIUM  // Use medium threshold in production
+    : CONFIDENCE_THRESHOLDS.LOW;    // Use lower threshold during development
 
 interface LivenessDetectionProps {
     onLivenessPassed: (imageSrc: string) => void;
@@ -22,26 +39,41 @@ enum LivenessState {
 }
 
 export default function LivenessDetection({ onLivenessPassed, onCancel }: LivenessDetectionProps) {
-    const webcamRef = useRef<Webcam>(null);
     const [livenessState, setLivenessState] = useState<LivenessState>(LivenessState.INITIALIZING);
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [progress, setProgress] = useState<number>(0);
     const [errorMessage, setErrorMessage] = useState<string>('');
     const [instructions, setInstructions] = useState<string>('Getting ready...');
-    const [resultCheckCount, setResultCheckCount] = useState<number>(0);
     const [debugInfo, setDebugInfo] = useState<string | null>(null);
-    const maxResultChecks = 10; // Maximum number of result check attempts
-    const resultCheckInterval = useRef<NodeJS.Timeout | null>(null);
+    const [confidenceScore, setConfidenceScore] = useState<number | null>(null);
+
+
+    useEffect(() => {
+
+        const styleElement = document.createElement('style');
+        styleElement.textContent = `
+            :root {
+                --amplify-components-liveness-face-guide-oval-width: 250px;
+                --amplify-components-liveness-face-guide-oval-height: 300px;
+                --amplify-components-liveness-face-guide-oval-border-width: 2px;
+                --amplify-components-liveness-face-guide-oval-border-color: rgba(255, 255, 255, 0.8);
+                --amplify-components-liveness-face-guide-overlay-background: rgba(0, 0, 0, 0.6);
+            }
+        `;
+        document.head.appendChild(styleElement);
+
+        return () => {
+            document.head.removeChild(styleElement);
+        };
+    }, []);
 
     // Create a liveness session when component mounts
     useEffect(() => {
         createLivenessSession();
 
-        // Clean up any intervals on unmount
+        // Clean up any resources when unmounting
         return () => {
-            if (resultCheckInterval.current) {
-                clearInterval(resultCheckInterval.current);
-            }
+            // Any cleanup code here
         };
     }, []);
 
@@ -106,7 +138,7 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
             setSessionId(data.sessionId);
             setLivenessState(LivenessState.READY);
             setProgress(20);
-            setInstructions('Position your face in the center and click "Start"');
+            setInstructions('Ready for liveness check. Click Start to begin.');
 
             toast.success('Ready for liveness check');
 
@@ -121,294 +153,302 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
         }
     };
 
-    // Start the liveness detection process
-    const startLivenessCheck = () => {
-        if (!sessionId) {
-            setErrorMessage('No session ID available. Please try again.');
-            setLivenessState(LivenessState.ERROR);
-            return;
-        }
-
-        setLivenessState(LivenessState.IN_PROGRESS);
-        setProgress(30);
-        setInstructions('Please keep your face centered and follow the prompts...');
-
-        toast.info('Liveness check in progress');
-
-        // Simulate the liveness check process
-        // In a real implementation, you would use AWS Rekognition JavaScript SDK
-        // to stream video for liveness analysis
-
-        // For this simulation, we'll wait 5 seconds and then check for results
-        setTimeout(() => {
-            setLivenessState(LivenessState.CHECKING_RESULTS);
-            setProgress(60);
-            setInstructions('Processing... please wait');
-            startCheckingResults();
-        }, 5000);
-    };
-
-    // Start checking for liveness results
-    const startCheckingResults = () => {
-        setResultCheckCount(0);
-
-        // Clear any existing interval
-        if (resultCheckInterval.current) {
-            clearInterval(resultCheckInterval.current);
-        }
-
-        // Check for results every 2 seconds
-        resultCheckInterval.current = setInterval(() => {
-            checkLivenessResults();
-        }, 2000);
-    };
-
-    // Check liveness results from the API
-    const checkLivenessResults = async () => {
+    // Handle completion of liveness analysis
+    const handleAnalysisComplete = async () => {
         if (!sessionId) return;
 
         try {
-            console.log(`Checking results for session ${sessionId}, attempt ${resultCheckCount + 1}/${maxResultChecks}`);
+            setLivenessState(LivenessState.CHECKING_RESULTS);
+            setProgress(80);
+            setInstructions('Processing liveness results...');
 
+            // Call our server API to get the liveness results
             const response = await fetch(`/api/face-liveness/get-result?sessionId=${sessionId}`);
-            console.log('Result API response status:', response.status);
 
             if (!response.ok) {
-                let errorMessage = '';
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.message || `Error ${response.status}`;
-
-                    // If the session is not found or expired, we may need to create a new one
-                    if (errorData.error === 'SessionNotFoundException' || errorData.error === 'SessionExpiredException') {
-                        if (resultCheckCount >= maxResultChecks) {
-                            throw new Error('Liveness check timed out. Please try again.');
-                        }
-
-                        // Increment counter and continue checking
-                        setResultCheckCount(prev => prev + 1);
-                        return;
-                    }
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                } catch (e) {
-                    // If we couldn't parse the response as JSON
-                    const text = await response.text();
-                    errorMessage = `Error ${response.status}: ${text.substring(0, 100)}`;
-                }
-
-                throw new Error(errorMessage);
+                throw new Error(`Error getting liveness results: ${response.status}`);
             }
 
             const data = await response.json();
-            console.log('Liveness result data:', data);
+            console.log('Liveness results:', data);
 
-            // Clear the interval as we got a response
-            if (resultCheckInterval.current) {
-                clearInterval(resultCheckInterval.current);
-                resultCheckInterval.current = null;
+            // Store confidence score for display
+            if (data.confidence) {
+                setConfidenceScore(data.confidence);
             }
 
-            // Check the status of the liveness check
-            if (data.status === 'SUCCEEDED' && data.confidence && data.confidence >= 90) {
-                // Success - use reference image if available
-                setLivenessState(LivenessState.PASSED);
-                setProgress(100);
-                setInstructions('Liveness check passed!');
+            // Check if the liveness check passed with sufficient confidence
+            if (data.status === 'SUCCEEDED') {
+                if (data.confidence && data.confidence >= REQUIRED_CONFIDENCE) {
+                    // High enough confidence success
+                    setLivenessState(LivenessState.PASSED);
+                    setProgress(100);
+                    setInstructions('Liveness check passed!');
+                    toast.success('Liveness check passed!');
 
-                toast.success('Liveness check passed!');
-
-                if (data.referenceImage && data.referenceImage.imageData) {
-                    // Use the reference image from the API
-                    onLivenessPassed(data.referenceImage.imageData);
-                } else {
-                    // Fallback to capturing our own image
-                    const imageSrc = webcamRef.current?.getScreenshot();
-                    if (imageSrc) {
-                        onLivenessPassed(imageSrc);
+                    // Pass the reference image back to the parent component
+                    if (data.referenceImage && data.referenceImage.imageData) {
+                        onLivenessPassed(data.referenceImage.imageData);
                     } else {
-                        throw new Error('Failed to capture image after liveness check');
+                        // If no reference image, we could take a screenshot or get the image some other way
+                        throw new Error('No reference image returned from liveness check');
                     }
+                } else {
+                    // Low confidence - treat as a different kind of failure
+                    setLivenessState(LivenessState.FAILED);
+                    setErrorMessage(`Liveness check passed but confidence too low (${data.confidence ? data.confidence.toFixed(1) : 0}%). Minimum required: ${REQUIRED_CONFIDENCE}%`);
+                    setProgress(100);
+                    setInstructions('Liveness verification failed due to low confidence. Please try again with better lighting and positioning.');
+                    toast.error('Liveness check failed - low confidence');
                 }
             } else if (data.status === 'FAILED') {
                 setLivenessState(LivenessState.FAILED);
-                setErrorMessage('Liveness check failed. Please try again.');
+                setErrorMessage(`Liveness check failed. ${data.confidence ? `Confidence: ${data.confidence.toFixed(1)}%` : ''}`);
                 setProgress(100);
-                setInstructions('Liveness check failed');
-
+                setInstructions('Liveness check failed. Please try again.');
                 toast.error('Liveness check failed');
-            } else if (data.status === 'IN_PROGRESS' || data.status === 'CREATED') {
-                // Still in progress, continue checking
-                if (resultCheckCount >= maxResultChecks) {
-                    throw new Error('Liveness check timed out. Please try again.');
-                }
-
-                // Increment counter and continue checking
-                setResultCheckCount(prev => prev + 1);
-
-                // Restart the interval
-                if (!resultCheckInterval.current) {
-                    resultCheckInterval.current = setInterval(() => {
-                        checkLivenessResults();
-                    }, 2000);
-                }
             } else {
+                // Handle unexpected status
                 throw new Error(`Unexpected liveness status: ${data.status}`);
             }
         } catch (error) {
-            console.error('Error checking liveness results:', error);
-
-            // Clear any existing interval
-            if (resultCheckInterval.current) {
-                clearInterval(resultCheckInterval.current);
-                resultCheckInterval.current = null;
-            }
-
+            console.error('Error handling liveness analysis:', error);
             setLivenessState(LivenessState.ERROR);
-            setErrorMessage((error as Error).message || 'Failed to verify liveness. Please try again.');
-            setInstructions('Error occurred');
-
+            setErrorMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setInstructions('Error occurred. Please try again.');
             toast.error('Liveness check error');
-
-            // Run diagnostic if we reached max result checks
-            if (resultCheckCount >= maxResultChecks) {
-                runDiagnostic();
-            }
         }
+    };
+
+    // Handle errors from the FaceLivenessDetector
+    const handleLivenessError = (error: any) => {
+        console.error('Face liveness error:', error);
+        setLivenessState(LivenessState.ERROR);
+        setErrorMessage(`Liveness error: ${error.message || 'Unknown error'}`);
+        setInstructions('Error occurred. Please try again.');
+        toast.error('Liveness check error');
+    };
+
+    // Handle user cancellation
+    const handleUserCancel = () => {
+        setLivenessState(LivenessState.READY);
+        setInstructions('Ready for liveness check. Click Start to begin.');
+        toast.info('Liveness check cancelled');
     };
 
     // Retry the liveness check
     const retryLivenessCheck = () => {
         setErrorMessage('');
         setDebugInfo(null);
+        setConfidenceScore(null);
         createLivenessSession();
+    };
+
+    // Render the appropriate content based on liveness state
+    const renderContent = () => {
+        switch (livenessState) {
+            case LivenessState.INITIALIZING:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Initializing...</h3>
+                        <p className="text-sm text-muted-foreground">
+                            Setting up the liveness check session.
+                        </p>
+                    </div>
+                );
+
+            case LivenessState.READY:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Ready for Liveness Check</h3>
+                        <p className="text-sm text-muted-foreground mb-6">
+                            Click the button below to start the liveness check. You'll be asked to follow some simple instructions.
+                        </p>
+                        <Button
+                            className="bg-primary hover:bg-primary/90"
+                            onClick={() => setLivenessState(LivenessState.IN_PROGRESS)}
+                        >
+                            Start Liveness Check
+                        </Button>
+                    </div>
+                );
+
+            case LivenessState.IN_PROGRESS:
+                if (!sessionId) {
+                    return (
+                        <div className="text-center p-8">
+                            <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                                <AlertCircle className="h-8 w-8 text-destructive" />
+                            </div>
+                            <h3 className="text-lg font-semibold mb-2">Session Error</h3>
+                            <p className="text-sm text-muted-foreground mb-6">
+                                No valid session ID available. Please try again.
+                            </p>
+                            <Button onClick={retryLivenessCheck}>
+                                Retry
+                            </Button>
+                        </div>
+                    );
+                }
+
+                return (
+                    <ThemeProvider>
+                        <FaceLivenessDetector
+                            sessionId={sessionId}
+                            region={process.env.NEXT_PUBLIC_AWS_LIVENESS_REGION || 'ap-northeast-1'}
+                            onAnalysisComplete={handleAnalysisComplete}
+                            onError={handleLivenessError}
+                            onUserCancel={handleUserCancel}
+                        />
+                    </ThemeProvider>
+                );
+
+            case LivenessState.CHECKING_RESULTS:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Processing Results</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Analyzing your liveness check results...
+                        </p>
+                        <Progress value={progress} className="h-2 w-64 mx-auto" />
+                    </div>
+                );
+
+            case LivenessState.PASSED:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Liveness Check Passed</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                            You've successfully completed the liveness check!
+                        </p>
+                        {confidenceScore && (
+                            <p className="text-xs text-muted-foreground mb-6">
+                                Confidence score: {confidenceScore.toFixed(1)}%
+                            </p>
+                        )}
+                    </div>
+                );
+
+            case LivenessState.FAILED:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <AlertCircle className="h-8 w-8 text-red-600 dark:text-red-400" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Liveness Check Failed</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            {errorMessage || "Your liveness check did not pass. Please try again."}
+                        </p>
+
+                        {errorMessage.includes('confidence too low') && (
+                            <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-md mb-6 mx-auto max-w-md">
+                                <h4 className="font-medium text-sm mb-2">Tips for better results:</h4>
+                                <ul className="text-xs text-left list-disc pl-4 space-y-1">
+                                    <li>Make sure your face is well lit from the front</li>
+                                    <li>Remove glasses if possible</li>
+                                    <li>Look directly at the camera</li>
+                                    <li>Keep a neutral expression</li>
+                                    <li>Hold the phone at eye level</li>
+                                </ul>
+                            </div>
+                        )}
+
+                        <Button
+                            className="bg-primary hover:bg-primary/90 flex items-center gap-2"
+                            onClick={retryLivenessCheck}
+                        >
+                            <RefreshCcw size={16} />
+                            Try Again
+                        </Button>
+                    </div>
+                );
+
+            case LivenessState.ERROR:
+                return (
+                    <div className="text-center p-8">
+                        <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <AlertCircle className="h-8 w-8 text-red-600 dark:text-red-400" />
+                        </div>
+                        <h3 className="text-lg font-semibold mb-2">Error</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                            {errorMessage || "An error occurred during the liveness check."}
+                        </p>
+                        {debugInfo && (
+                            <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-md text-xs font-mono text-left mb-6 mx-auto max-w-md overflow-auto">
+                                <details>
+                                    <summary className="cursor-pointer">Debug Information</summary>
+                                    <div className="pt-2 whitespace-pre-wrap break-words">
+                                        {debugInfo}
+                                    </div>
+                                </details>
+                            </div>
+                        )}
+                        <div className="flex gap-3 justify-center">
+                            <Button
+                                variant="outline"
+                                onClick={() => runDiagnostic()}
+                            >
+                                Run Diagnostic
+                            </Button>
+                            <Button
+                                className="bg-primary hover:bg-primary/90 flex items-center gap-2"
+                                onClick={retryLivenessCheck}
+                            >
+                                <RefreshCcw size={16} />
+                                Try Again
+                            </Button>
+                        </div>
+                    </div>
+                );
+        }
     };
 
     return (
         <Card className="border-slate-200 dark:border-slate-700 md:max-w-full overflow-hidden">
-            <CardContent className="p-6">
-                <div className="text-center mb-4">
+            <CardContent className="p-0 relative">
+                <div className="text-center py-4 border-b border-slate-200 dark:border-slate-700">
                     <h2 className="text-lg font-semibold">Face Liveness Check</h2>
                     <p className="text-sm text-slate-500">
                         {instructions}
                     </p>
                 </div>
 
-                <div className="relative overflow-hidden rounded-lg bg-black mb-4">
-                    <Webcam
-                        audio={false}
-                        ref={webcamRef}
-                        screenshotFormat="image/jpeg"
-                        videoConstraints={{
-                            facingMode: "user",
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
-                        }}
-                        className="w-full aspect-video object-cover"
-                    />
+                {renderContent()}
 
-                    {/* Liveness detection overlay */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        {/* Face outline guide */}
-                        <div className={`
-                           rounded-full w-64 h-64 border-2
-                           ${livenessState === LivenessState.READY ? 'border-white' : ''}
-                           ${livenessState === LivenessState.IN_PROGRESS ? 'border-yellow-400 animate-pulse' : ''}
-                           ${livenessState === LivenessState.CHECKING_RESULTS ? 'border-blue-400' : ''}
-                           ${livenessState === LivenessState.PASSED ? 'border-green-500' : ''}
-                           ${livenessState === LivenessState.FAILED ? 'border-red-500' : ''}
-                           ${livenessState === LivenessState.ERROR ? 'border-red-500' : ''}
-                           ${livenessState === LivenessState.INITIALIZING ? 'border-white border-opacity-50' : ''}
-                         `}></div>
-
-                        {livenessState === LivenessState.PASSED && (
-                            <div className="bg-green-500/80 rounded-full w-24 h-24 flex items-center justify-center">
-                                <CheckCircle className="h-12 w-12 text-white" />
-                            </div>
-                        )}
-
-                        {livenessState === LivenessState.FAILED && (
-                            <div className="bg-red-500/80 rounded-full w-24 h-24 flex items-center justify-center">
-                                <AlertCircle className="h-12 w-12 text-white" />
-                            </div>
-                        )}
-
-                        {(livenessState === LivenessState.INITIALIZING || livenessState === LivenessState.CHECKING_RESULTS) && (
-                            <div className="bg-black/60 rounded-lg p-4 max-w-xs text-center">
-                                <Loader2 className="h-8 w-8 text-white mx-auto animate-spin mb-2" />
-                                <p className="text-white">
-                                    {livenessState === LivenessState.INITIALIZING ? 'Initializing...' : 'Verifying...'}
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    {livenessState !== LivenessState.PASSED && progress > 0 && (
-                        <div className="space-y-1">
-                            <Progress value={progress} className="h-2" />
-                            <p className="text-xs text-center text-slate-500">
-                                {progress}% complete
-                            </p>
-                        </div>
-                    )}
-
-                    {errorMessage && (
-                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded-md text-red-800 dark:text-red-200 text-sm">
-                            {errorMessage}
-                        </div>
-                    )}
-
-                    {debugInfo && (
-                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 rounded-md text-blue-800 dark:text-blue-200 text-xs font-mono">
-                            <details>
-                                <summary className="cursor-pointer">Debug Information</summary>
-                                <div className="pt-2 whitespace-pre-wrap break-words">
-                                    {debugInfo}
-                                </div>
-                            </details>
-                        </div>
-                    )}
-
-                    <div className="flex gap-3">
+                {livenessState !== LivenessState.IN_PROGRESS && (
+                    <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-between">
                         <Button
                             variant="outline"
-                            className="flex-1"
                             onClick={onCancel}
                         >
                             Cancel
                         </Button>
 
-                        {livenessState === LivenessState.READY && (
+                        {livenessState === LivenessState.PASSED && (
                             <Button
-                                className="flex-1 bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700"
-                                onClick={startLivenessCheck}
+                                className="bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700"
+                                onClick={() => {/* Already handled by onLivenessPassed */}}
                             >
-                                Start Liveness Check
-                            </Button>
-                        )}
-
-                        {(livenessState === LivenessState.FAILED || livenessState === LivenessState.ERROR) && (
-                            <Button
-                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2"
-                                onClick={retryLivenessCheck}
-                            >
-                                <RefreshCcw size={16} />
-                                Try Again
-                            </Button>
-                        )}
-
-                        {livenessState === LivenessState.ERROR && (
-                            <Button
-                                variant="outline"
-                                className="flex-1"
-                                onClick={() => runDiagnostic()}
-                            >
-                                Run Diagnostic
+                                Continue
                             </Button>
                         )}
                     </div>
-                </div>
+                )}
             </CardContent>
         </Card>
     );

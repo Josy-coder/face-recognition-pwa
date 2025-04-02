@@ -1,5 +1,3 @@
-// pages/api/face-liveness/create-session.ts
-
 import { NextApiRequest, NextApiResponse } from 'next';
 import { CreateFaceLivenessSessionCommand } from '@aws-sdk/client-rekognition';
 import { getLivenessRekognitionClient } from '@/lib/aws-config';
@@ -11,29 +9,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        // Use the Tokyo region client for Face Liveness
+        // Use the appropriate region client for Face Liveness
         const rekognition = getLivenessRekognitionClient();
 
         // Create a client request token for idempotency
         const clientRequestToken = uuidv4().replace(/-/g, '');
 
+        // Settings for better liveness detection
+        const settings = {
+            // Request audit images (0-4, where 0 means no audit images)
+            AuditImagesLimit: 2,
+            // Optionally configure S3 storage if you want to store images
+            // OutputConfig: {
+            //     S3Bucket: process.env.AWS_LIVENESS_S3_BUCKET,
+            //     S3KeyPrefix: "liveness-sessions/"
+            // }
+        };
+
         // Set up the command with proper parameters according to AWS documentation
         const command = new CreateFaceLivenessSessionCommand({
             ClientRequestToken: clientRequestToken,
-            Settings: {
-                // Request audit images (0-4, where 0 means no audit images)
-                AuditImagesLimit: 2,
-                // You can also specify an S3 bucket for storing images if needed
-                // OutputConfig: {
-                //   S3Bucket: "your-bucket-name",
-                //   S3KeyPrefix: "liveness-sessions/"
-                // }
-            }
+            Settings: settings
         });
 
+        console.log('Creating Face Liveness session...');
         const response = await rekognition.send(command);
+        console.log('Session created:', response);
 
-        // Return the session ID and token to the client
+        // Return the session ID to the client
         return res.status(200).json({
             sessionId: response.SessionId,
             clientToken: clientRequestToken

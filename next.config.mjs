@@ -39,6 +39,10 @@ const nextConfig = {
       },
     ];
   },
+  transpilePackages: [
+    "@aws-amplify/ui-react-liveness",
+    "@aws-amplify/ui-react"
+  ],
 };
 
 export default nextConfig;

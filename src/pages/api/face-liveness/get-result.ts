@@ -1,5 +1,3 @@
-// pages/api/face-liveness/get-result.ts
-
 import { NextApiRequest, NextApiResponse } from 'next';
 import { GetFaceLivenessSessionResultsCommand } from '@aws-sdk/client-rekognition';
 import { getLivenessRekognitionClient } from '@/lib/aws-config';
@@ -17,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        // Use the Tokyo region client for Face Liveness
+        // Use the appropriate region client for Face Liveness
         const rekognition = getLivenessRekognitionClient();
 
         // Get the results of the face liveness session
@@ -25,7 +23,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             SessionId: sessionId
         });
 
+        console.log(`Getting Face Liveness results for session: ${sessionId}`);
         const response = await rekognition.send(command);
+        console.log('Liveness results:', {
+            status: response.Status,
+            confidence: response.Confidence,
+            hasReferenceImage: !!response.ReferenceImage,
+            auditImagesCount: response.AuditImages?.length || 0
+        });
 
         // Convert binary image data to base64 for frontend
         let referenceImageBase64 = null;

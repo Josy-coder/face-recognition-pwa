@@ -4,6 +4,15 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+
+  /* Face guide oval customization */
+  --amplify-components-liveness-face-guide-oval-width: 250px;
+  --amplify-components-liveness-face-guide-oval-height: 300px;
+  --amplify-components-liveness-face-guide-oval-border-width: 2px;
+  --amplify-components-liveness-face-guide-oval-border-color: rgba(255, 255, 255, 0.8);
+  --amplify-components-liveness-face-guide-overlay-background: rgba(0, 0, 0, 0.6);
+
+
   --background: #ffffff;
   --foreground: #171717;
   --radius: 0.625rem;
