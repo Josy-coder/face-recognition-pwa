@@ -123,12 +123,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
             }
 
+            // Try filename matching as a last resort
+            if (imageSrc === '/profile-placeholder.jpg') {
+                // Try matching any filename that has a similar pattern to the face ID
+                const faceId = match.Face?.FaceId;
+                if (faceId) {
+                    for (const image of s3Images) {
+                        const filename = image.key.split('/').pop() || '';
+                        // Check if the filename looks like it could be related to this face
+                        if (filename.includes(faceId.substring(0, 8))) {
+                            const url = await s3Service.getImageUrl(image.key);
+                            if (url) {
+                                imageSrc = url;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Determine name and other info
+            const name = externalId ?
+                (personInfo?.name || externalId.replace(/-/g, ' ')) :
+                `Face ${match.Face?.FaceId?.substring(0, 8) || 'Unknown'}`;
+
             return {
                 ...match,
                 imageSrc,
                 folder,
+                ExternalImageId: externalId,
                 personInfo: personInfo || {
-                    name: externalId || `Face ${match.Face?.FaceId?.substring(0, 8) || 'Unknown'}`
+                    name
                 }
             };
         }));

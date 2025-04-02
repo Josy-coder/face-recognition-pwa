@@ -19,6 +19,8 @@ interface AWSFaceMatch {
         ImageId?: string;
     };
     folder?: string;
+    imageSrc?: string;
+    personInfo?: any;
 }
 
 export default function Results() {
@@ -64,53 +66,59 @@ export default function Results() {
                 setAnalysisComplete(true);
 
                 setTimeout(() => {
-                    // Transform AWS results to our application's format
                     const processedResults: SearchResult[] = awsResults.map((match, index) => {
-                        // Use the ExternalImageId that was set when the face was indexed in the collection
-                        // This would typically contain person information like name, department, etc.
-                        const externalId = match.ExternalImageId || match.Face?.ExternalImageId;
-                        let personInfo = null;
+                        // Extract person info from match data
+                        let name = 'Unknown Person';
+                        const details: any = {
+                            path: match.folder || 'Unknown',
+                            title: 'Unknown Position',
+                            department: 'Unknown Department',
+                        };
 
-                        // Try to parse as JSON if it looks like JSON, otherwise use as-is
-                        if (externalId) {
-                            try {
-                                // Only try to parse if it looks like it might be JSON
-                                if (externalId.startsWith('{') && externalId.endsWith('}')) {
-                                    personInfo = JSON.parse(externalId);
-                                }
-                            } catch (e) {
+                        // Use personInfo from the match if available
+                        if (match.personInfo) {
+                            name = match.personInfo.name || name;
 
-                                console.log(e, 'Failed to parse externalId as JSON, using as plain string');
+                            // Extract any additional details
+                            if (typeof match.personInfo === 'object') {
+                                Object.entries(match.personInfo).forEach(([key, value]) => {
+                                    if (key !== 'name' && key !== 's3Key' && key !== 's3Folder') {
+                                        details[key] = value;
+                                    }
+                                });
                             }
                         }
 
-                        // If we don't have personInfo from JSON, create a basic object
-                        if (!personInfo) {
-                            personInfo = {
-                                name: externalId || `Person ${index + 1}`,
-                            };
+                        // Use ExternalImageId from Face if available and personInfo isn't
+                        if (!match.personInfo && match.Face?.ExternalImageId) {
+                            name = match.Face.ExternalImageId.replace(/-/g, ' ');
                         }
+
+                        // Parse name from ExternalImageId if it looks like a person's name
+                        if (name === 'Unknown Person' && match.ExternalImageId) {
+                            // Simple heuristic: names usually have spaces when replacing dashes
+                            const potentialName = match.ExternalImageId.replace(/-/g, ' ');
+                            if (/^[A-Z][a-z]+ [A-Z][a-z]+$/.test(potentialName)) {
+                                name = potentialName;
+                            }
+                        }
+
+                        // Default image is a placeholder if not provided by the backend
+                        const imageSrc = match.imageSrc || '/profile-placeholder.jpg';
 
                         return {
                             id: match.FaceId || `result-${index}`,
-                            name: personInfo.name || 'Unknown Person',
-                            // In a real application, you would store image URLs or retrieve images from AWS S3
-                            imageSrc: personInfo.imageSrc || '/profile-placeholder.jpg',
-                            matchConfidence: match.Similarity,
-                            details: {
-                                path: match.folder || 'Unknown',
-                                title: personInfo.title || 'Unknown Position',
-                                department: personInfo.department || 'Unknown Department',
-                                email: personInfo.email || '',
-                                phone: personInfo.phone || '',
-                                ...(personInfo.additionalDetails || {})
-                            }
+                            name: name,
+                            imageSrc: imageSrc,
+                            matchConfidence: match.Similarity || 0,
+                            details: details
                         };
                     });
 
                     // Sort by confidence
                     processedResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
 
+                    console.log('Processed results:', processedResults);
                     setResults(processedResults);
                     if (processedResults.length > 0) {
                         setSelectedResult(processedResults[0]);
@@ -295,6 +303,10 @@ export default function Results() {
                                                 src={selectedResult.imageSrc}
                                                 alt={selectedResult.name}
                                                 className="object-cover w-full h-full"
+                                                onError={(e) => {
+                                                    // Fallback to placeholder if image fails to load
+                                                    (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                }}
                                             />
                                         </div>
                                         <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Match confidence</p>
@@ -376,6 +388,10 @@ export default function Results() {
                                                         src={result.imageSrc}
                                                         alt={result.name}
                                                         className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            // Fallback to placeholder if image fails to load
+                                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                        }}
                                                     />
                                                 </div>
 

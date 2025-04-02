@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { DetectFacesCommand } from '@aws-sdk/client-rekognition';
+import { DetectFacesCommand, Attribute } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Configure attribute detection
         const attributes = [
-            'DEFAULT'      // Basic face detection
+            Attribute.DEFAULT     // Basic face detection
         ];
 
         const command = new DetectFacesCommand({
