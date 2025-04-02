@@ -18,7 +18,6 @@ const CONFIDENCE_THRESHOLDS = {
     TESTING: 50  // For development only
 };
 
-
 const REQUIRED_CONFIDENCE = process.env.NODE_ENV === 'production'
     ? CONFIDENCE_THRESHOLDS.MEDIUM  // Use medium threshold in production
     : CONFIDENCE_THRESHOLDS.LOW;    // Use lower threshold during development
@@ -47,9 +46,9 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
     const [debugInfo, setDebugInfo] = useState<string | null>(null);
     const [confidenceScore, setConfidenceScore] = useState<number | null>(null);
 
-
+    // Add custom styling for the face oval and positioning
     useEffect(() => {
-
+        // Add styles for better oval positioning
         const styleElement = document.createElement('style');
         styleElement.textContent = `
             :root {
@@ -59,9 +58,40 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
                 --amplify-components-liveness-face-guide-oval-border-color: rgba(255, 255, 255, 0.8);
                 --amplify-components-liveness-face-guide-overlay-background: rgba(0, 0, 0, 0.6);
             }
+            
+            /* Center the oval both horizontally and vertically */
+            [data-amplify-liveness-face-guide] {
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+            }
+            
+            /* Make sure the oval is properly centered and sized */
+            [data-amplify-liveness-face-guide-oval] {
+                position: relative !important;
+                transform: none !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 250px !important;
+                height: 300px !important;
+            }
+            
+            /* Center the instruction text */
+            [data-amplify-liveness-hint-center-face] {
+                position: absolute !important;
+                top: -40px !important;
+                left: 50% !important;
+                transform: translateX(-50%) !important;
+                background-color: rgba(0, 0, 0, 0.7) !important;
+                padding: 8px 16px !important;
+                border-radius: 4px !important;
+                font-weight: 500 !important;
+                white-space: nowrap !important;
+            }
         `;
         document.head.appendChild(styleElement);
 
+        // Clean up style element when component unmounts
         return () => {
             document.head.removeChild(styleElement);
         };

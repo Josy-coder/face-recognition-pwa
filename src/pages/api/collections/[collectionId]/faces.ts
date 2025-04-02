@@ -23,6 +23,15 @@ const isAdmin = (req: NextApiRequest) => {
     return username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD;
 };
 
+// Check if this is a public registration request
+const isPublicRegistration = (req: NextApiRequest, collectionId: string) => {
+    // Allow public registration only for the PNG collection
+    // You can add more specific logic here if needed
+    return req.method === 'POST' && collectionId === 'PNG' &&
+        // Check if the request has registration data
+        req.body && req.body.image && req.body.externalImageId;
+};
+
 // Collection to folder mapping - in a production app, store this in a database
 const COLLECTION_TO_FOLDER_MAP: Record<string, string> = {};
 
@@ -36,8 +45,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ message: 'Valid collection ID is required' });
     }
 
-    // Admin check for POST and DELETE
-    if ((req.method === 'POST' || req.method === 'DELETE') && !isAdmin(req)) {
+    // Admin check for POST and DELETE, with exception for public registration
+    if ((req.method === 'POST' || req.method === 'DELETE') &&
+        !isAdmin(req) && !isPublicRegistration(req, collectionId)) {
         return res.status(401).json({ message: 'Unauthorized' });
     }
 

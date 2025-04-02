@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,15 @@ interface ImageCropperProps {
     imageSrc: string;
     onCrop: (croppedImage: string) => void;
     onCancel: () => void;
+    autoCrop?: boolean;
 }
 
-export default function ImageCropper({ imageSrc, onCrop, onCancel }: ImageCropperProps) {
+export default function ImageCropper({
+                                         imageSrc,
+                                         onCrop,
+                                         onCancel,
+                                         autoCrop = true
+                                     }: ImageCropperProps) {
     const [crop, setCrop] = useState<Crop>({
         unit: '%',
         width: 80,
@@ -22,9 +28,109 @@ export default function ImageCropper({ imageSrc, onCrop, onCancel }: ImageCroppe
 
     const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
     const imageRef = useRef<HTMLImageElement | null>(null);
+    const [isAutoDetecting, setIsAutoDetecting] = useState(autoCrop);
 
+    // Auto detect face and crop when component mounts
+    useEffect(() => {
+        if (autoCrop) {
+            // Attempt to detect face using AWS Rekognition and set optimal crop
+            detectFaceAndCrop();
+        }
+    }, [autoCrop]);
+
+    // Function to detect face and set optimal crop
+    const detectFaceAndCrop = async () => {
+        try {
+            setIsAutoDetecting(true);
+
+            // Call face detection API
+            const response = await fetch('/api/face-detection', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: imageSrc }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Face detection failed');
+            }
+
+            const data = await response.json();
+
+            // Check if face was detected
+            if (data.faceDetails && data.faceDetails.length > 0) {
+                // Get the first (presumably most prominent) face
+                const face = data.faceDetails[0];
+
+                // Extract bounding box (normalized coordinates)
+                const { BoundingBox } = face;
+
+                if (BoundingBox) {
+                    // Convert to crop coordinates (% based)
+                    const newCrop: Crop = {
+                        unit: '%',
+                        width: BoundingBox.Width * 100 * 1.5, // Enlarge slightly
+                        height: BoundingBox.Height * 100 * 1.5, // Enlarge slightly
+                        x: Math.max(0, BoundingBox.Left * 100 - BoundingBox.Width * 100 * 0.25), // Center
+                        y: Math.max(0, BoundingBox.Top * 100 - BoundingBox.Height * 100 * 0.25), // Center
+                    };
+
+                    // Ensure crop doesn't exceed image bounds
+                    if (newCrop.x + newCrop.width > 100) newCrop.width = 100 - newCrop.x;
+                    if (newCrop.y + newCrop.height > 100) newCrop.height = 100 - newCrop.y;
+
+                    // Apply the crop
+                    setCrop(newCrop);
+
+                    // Wait for image to be fully loaded
+                    if (imageRef.current) {
+                        const img = imageRef.current;
+                        if (img.complete) {
+                            applyCrop(newCrop);
+                        } else {
+                            img.onload = () => applyCrop(newCrop);
+                        }
+                    }
+                }
+            } else {
+                toast.warning("No face detected. Please adjust the crop manually.");
+            }
+        } catch (error) {
+            console.error('Error in auto detection:', error);
+            toast.error("Couldn't auto-detect face. Please adjust manually.");
+        } finally {
+            setIsAutoDetecting(false);
+        }
+    };
+
+    // Apply crop to the image and save the result
+    const applyCrop = (cropArea: Crop) => {
+        if (!imageRef.current) return;
+
+        const img = imageRef.current;
+
+        const pixelCrop: PixelCrop = {
+            unit: 'px',
+            width: cropArea.width * img.width / 100,
+            height: cropArea.height * img.height / 100,
+            x: cropArea.x * img.width / 100,
+            y: cropArea.y * img.height / 100,
+        };
+
+        setCompletedCrop(pixelCrop);
+    };
+
+    // Get the cropped image as a data URL
     function getCroppedImg() {
         if (!imageRef.current || !completedCrop) {
+            // If no manual crop completed but we have auto crop, use that
+            if (crop && autoCrop) {
+                applyCrop(crop);
+                setTimeout(() => getCroppedImg(), 100); // retry after a brief delay
+                return;
+            }
+
             toast.error("Please adjust the crop area", {
                 closeButton: true,
             });
@@ -68,7 +174,9 @@ export default function ImageCropper({ imageSrc, onCrop, onCancel }: ImageCroppe
                 <div className="text-center mb-6">
                     <h2 className="text-xl font-semibold mb-2">Adjust Photo</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-400">
-                        Position the crop area to focus on the face
+                        {isAutoDetecting
+                            ? "Auto-detecting face..."
+                            : "Position the crop area to focus on the face"}
                     </p>
                 </div>
 
@@ -76,7 +184,10 @@ export default function ImageCropper({ imageSrc, onCrop, onCancel }: ImageCroppe
                     <ReactCrop
                         crop={crop}
                         onChange={(c) => setCrop(c)}
-                        onComplete={(c) => setCompletedCrop(c)}
+                        onComplete={(c) => {
+                            setCompletedCrop(c);
+                            applyCrop(c);
+                        }}
                         aspect={1}
                         circularCrop
                         className="max-w-full mx-auto"
@@ -86,6 +197,11 @@ export default function ImageCropper({ imageSrc, onCrop, onCancel }: ImageCroppe
                             src={imageSrc}
                             alt="Upload"
                             className="max-w-full mx-auto"
+                            onLoad={() => {
+                                if (autoCrop && crop) {
+                                    applyCrop(crop);
+                                }
+                            }}
                         />
                     </ReactCrop>
                 </div>
