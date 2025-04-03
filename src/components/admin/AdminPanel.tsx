@@ -843,7 +843,7 @@ const AdminPanel = () => {
                                                         }}
                                                     />
                                                     <Button
-                                                        variant="outline"
+                                                        variant="secondary"
                                                         onClick={() => document.getElementById('file-upload')?.click()}
                                                     >
                                                         <Upload size={16} className="mr-2" />
