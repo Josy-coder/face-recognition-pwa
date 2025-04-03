@@ -166,7 +166,7 @@ export default function HomePage() {
             <div className="max-w-2xl mx-auto">
               {totalImages !== null && (
                   <div className="mb-4 text-center">
-                    <Badge variant="outline" className="mx-auto flex items-center gap-1 justify-center">
+                    <Badge className="mx-auto flex items-center gap-1 justify-center">
                       <Users size={14} />
                       <span>{totalImages} faces in database</span>
                     </Badge>

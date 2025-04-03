@@ -206,7 +206,7 @@ export default function CameraCapture({
                                     Camera access denied or not available
                                 </p>
                                 <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
-                                    Please check your browser permissions or try uploading an image instead.
+                                    Please check your browser permissions
                                 </p>
                             </div>
                         ) : (

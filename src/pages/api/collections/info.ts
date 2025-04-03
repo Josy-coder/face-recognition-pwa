@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { ListFacesCommand } from '@aws-sdk/client-rekognition';
+import { DescribeCollectionCommand } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -16,18 +16,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const rekognition = getRekognitionClient();
 
-        // Get faces count for the collection
-        const command = new ListFacesCommand({
-            CollectionId: collectionId,
-            MaxResults: 1, // We only need the count, not the actual faces
+        // Use DescribeCollection to get accurate metadata including face count
+        const command = new DescribeCollectionCommand({
+            CollectionId: collectionId
         });
 
         const response = await rekognition.send(command);
 
         return res.status(200).json({
             collectionId,
-            faceCount: response.Faces?.length || 0,
-            faceModelVersion: response.FaceModelVersion
+            faceCount: response.FaceCount || 0,
+            faceModelVersion: response.FaceModelVersion,
+            creationTimestamp: response.CreationTimestamp,
+            collectionARN: response.CollectionARN
         });
     } catch (error) {
         console.error('Error getting collection info:', error);
