@@ -207,12 +207,17 @@ export default function HomePage() {
                     </p>
 
                     {croppedImage && (
-                        <div className="w-32 h-32 mx-auto overflow-hidden rounded-full border-4 border-indigo-100 dark:border-indigo-900 mb-4">
-                          <img
-                              src={croppedImage}
-                              alt="Cropped face"
-                              className="w-full h-full object-cover"
-                          />
+                        <div className="text-center mb-6">
+                          <div className="w-32 h-32 mx-auto relative">
+                            <div className="absolute inset-0 rounded-full shadow-inner" aria-hidden="true"></div>
+                            <div className="absolute inset-0 rounded-full overflow-hidden">
+                              <img
+                                  src={croppedImage}
+                                  alt="Your face"
+                                  className="w-full h-full object-cover"
+                              />
+                            </div>
+                          </div>
                         </div>
                     )}
                   </div>

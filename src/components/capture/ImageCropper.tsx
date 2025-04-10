@@ -141,6 +141,7 @@ export default function ImageCropper({
         const scaleX = imageRef.current.naturalWidth / imageRef.current.width;
         const scaleY = imageRef.current.naturalHeight / imageRef.current.height;
 
+        // Make the canvas size match the crop size
         canvas.width = completedCrop.width;
         canvas.height = completedCrop.height;
 
@@ -152,6 +153,19 @@ export default function ImageCropper({
             return;
         }
 
+        // Create a circular clipping path
+        ctx.beginPath();
+        ctx.arc(
+            completedCrop.width / 2,
+            completedCrop.height / 2,
+            Math.min(completedCrop.width, completedCrop.height) / 2,
+            0,
+            2 * Math.PI
+        );
+        ctx.closePath();
+        ctx.clip();
+
+        // Draw the cropped image onto the canvas
         ctx.drawImage(
             imageRef.current,
             completedCrop.x * scaleX,
