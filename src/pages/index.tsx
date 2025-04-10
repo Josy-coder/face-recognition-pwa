@@ -84,7 +84,6 @@ export default function HomePage() {
   };
 
   const handleSearch = () => {
-    // Ensure we have valid data before navigating
     if (!croppedImage) {
       toast.error("No image available. Please take or upload a photo first.");
       return;
@@ -93,18 +92,29 @@ export default function HomePage() {
     // Use PNG by default if no folders selected
     const selectedPaths = selectedFolders.length > 0 ? selectedFolders : ['PNG'];
 
-    // Store the data in localStorage
-    localStorage.setItem('faceRecog_searchImage', croppedImage);
-    localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(selectedPaths));
-
-    // Navigate to search page
     try {
-      console.log("Navigating to search page...");
-      router.push('/search');
+      // Store in localStorage
+      localStorage.setItem('faceRecog_searchImage', croppedImage);
+      localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(selectedPaths));
+
+      // Try multiple navigation methods
+      try {
+        router.replace('/search').then(() => {
+          router.reload();
+        });
+      } catch {
+        try {
+          router.push('/search').then(() => {
+            router.reload();
+          });
+        } catch {
+          window.location.replace('/search');
+        }
+      }
     } catch (error) {
-      console.error("Router navigation failed:", error);
-      // Fallback to direct navigation
-      window.location.href = '/search';
+      toast.error('Error preparing search', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   };
 

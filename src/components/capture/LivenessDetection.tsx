@@ -429,7 +429,7 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
                         )}
                         <div className="flex gap-3 justify-center">
                             <Button
-                                variant="outline"
+                                variant="ghost"
                                 onClick={() => runDiagnostic()}
                             >
                                 Run Diagnostic
@@ -462,7 +462,7 @@ export default function LivenessDetection({ onLivenessPassed, onCancel }: Livene
                 {livenessState !== LivenessState.IN_PROGRESS && (
                     <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex justify-between">
                         <Button
-                            variant="outline"
+                            variant="ghost"
                             onClick={onCancel}
                         >
                             Cancel

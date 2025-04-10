@@ -144,7 +144,7 @@ export default function SearchPage() {
 
                             <div className="flex justify-between space-x-4">
                                 <Button
-                                    variant="outline"
+                                    variant="ghost"
                                     onClick={handleBack}
                                     className="w-1/2"
                                     disabled={isSearching}
