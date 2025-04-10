@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import Layout from '@/components/layout/layout';
 import LoadingSkeleton from '@/components/loading';
 import { useSearchStore, SearchResult } from '@/store/search-store';
+import { convertExternalIdToS3Path } from '@/utils/path-conversion';
 
 interface AWSFaceMatch {
     FaceId: string;
@@ -19,8 +20,11 @@ interface AWSFaceMatch {
         ImageId?: string;
     };
     folder?: string;
+    folderSegments?: string[];
     imageSrc?: string;
+    displayName?: string;
     personInfo?: any;
+    s3Key?: string;
 }
 
 export default function Results() {
@@ -67,13 +71,28 @@ export default function Results() {
 
                 setTimeout(() => {
                     const processedResults: SearchResult[] = awsResults.map((match, index) => {
-                        // Extract person info from match data
-                        let name = 'Unknown Person';
+                        // Use the displayName if available, or extract from ExternalImageId
+                        let name = match.displayName || 'Unknown Person';
+
+                        // Build details object with folder path information
                         const details: any = {
                             path: match.folder || 'Unknown',
                             title: 'Unknown Position',
                             department: 'Unknown Department',
                         };
+
+                        // If we have folderSegments, use them to enhance details
+                        if (match.folderSegments && match.folderSegments.length > 0) {
+                            // Try to extract department from second folder level if available
+                            if (match.folderSegments.length > 1) {
+                                details.department = match.folderSegments[1];
+                            }
+
+                            // For regions with 3+ levels, extract more specific location info
+                            if (match.folderSegments.length > 2) {
+                                details.region = match.folderSegments[2];
+                            }
+                        }
 
                         // Use personInfo from the match if available
                         if (match.personInfo) {
@@ -89,18 +108,13 @@ export default function Results() {
                             }
                         }
 
-                        // Use ExternalImageId from Face if available and personInfo isn't
-                        if (!match.personInfo && match.Face?.ExternalImageId) {
-                            name = match.Face.ExternalImageId.replace(/-/g, ' ');
-                        }
+                        // If ExternalImageId contains path info with colons, extract proper S3 path
+                        let s3Path = '';
+                        if (match.ExternalImageId && match.ExternalImageId.includes(':')) {
+                            s3Path = convertExternalIdToS3Path(match.ExternalImageId);
 
-                        // Parse name from ExternalImageId if it looks like a person's name
-                        if (name === 'Unknown Person' && match.ExternalImageId) {
-                            // Simple heuristic: names usually have spaces when replacing dashes
-                            const potentialName = match.ExternalImageId.replace(/-/g, ' ');
-                            if (/^[A-Z][a-z]+ [A-Z][a-z]+$/.test(potentialName)) {
-                                name = potentialName;
-                            }
+                            // Update the path detail
+                            details.path = s3Path;
                         }
 
                         // Default image is a placeholder if not provided by the backend

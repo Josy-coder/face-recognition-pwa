@@ -7,6 +7,7 @@ import {
 import { getRekognitionClient } from '@/lib/aws-config';
 import { s3Service } from '@/services/s3-service';
 import { v4 as uuidv4 } from 'uuid';
+import { convertExternalIdToS3Path, convertS3PathToExternalId } from '@/utils/path-conversion';
 
 // Simple auth middleware
 const isAdmin = (req: NextApiRequest) => {
@@ -94,14 +95,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
             }
 
+            // Extract folder path from externalImageId if it follows our convention
+            let targetFolder = s3FolderPath;
+            if (sanitizedId.includes(':')) {
+                // If the externalImageId already includes a path structure, extract it
+                const s3Path = convertExternalIdToS3Path(sanitizedId);
+                const lastSlashIndex = s3Path.lastIndexOf('/');
+                if (lastSlashIndex !== -1) {
+                    targetFolder = s3Path.substring(0, lastSlashIndex);
+                }
+            }
+
+            // Generate a filename from externalImageId if necessary
+            let filename;
+            if (sanitizedId.includes(':')) {
+                // Extract filename from the external ID (last part after colon)
+                filename = sanitizedId.split(':').pop() || `face-${Date.now()}.jpg`;
+            } else {
+                filename = `${sanitizedId}.jpg`;
+            }
+
             // Upload the image to S3
-            const filename = `${sanitizedId.replace(/[^a-zA-Z0-9-]/g, '-')}.jpg`;
-            const s3Key = await s3Service.uploadImage(image, s3FolderPath, filename);
+            const s3Key = await s3Service.uploadImage(image, targetFolder, filename);
 
             // Save S3 information in additionalInfo
             if (s3Key) {
                 additionalInfo.s3Key = s3Key;
-                additionalInfo.s3Folder = s3FolderPath;
+                additionalInfo.s3Folder = targetFolder;
+            }
+
+            // Make sure the externalImageId follows our convention if the user hasn't provided one
+            if (!externalImageId || !externalImageId.includes(':')) {
+                // Create an externalImageId that follows our convention
+                if (s3Key) {
+                    sanitizedId = convertS3PathToExternalId(s3Key);
+                }
             }
 
             // Index the face in Rekognition
@@ -132,7 +160,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(201).json({
                 faceRecords: response.FaceRecords || [],
                 unindexedFaces: response.UnindexedFaces || [],
-                s3Key: s3Key
+                s3Key: s3Key,
+                externalImageId: sanitizedId
             });
         } catch (error) {
             console.error('Error indexing face:', error);
@@ -145,7 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         try {
             const command = new ListFacesCommand({
                 CollectionId: collectionId,
-                MaxResults: 100,
+                MaxResults: 1000,
             });
 
             const response = await rekognition.send(command);
@@ -167,59 +196,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
             }
 
-            // Get all images in this folder
-            const s3Images = await s3Service.listImages(s3FolderPath);
+            // Get all images in this folder (recursively)
+            const s3Images = await s3Service.listAllImagesRecursively(s3FolderPath);
 
-            // Create a map of face ID/external ID to S3 image URLs
-            const imageUrlMap: Record<string, string> = {};
+            // Create a map to quickly look up images by externalId or path
+            const imageMap = new Map();
 
-            for (const image of s3Images) {
-                const imageName = image.key.split('/').pop() || '';
-                // Find a matching face by filename
-                if (imageName) {
-                    const signedUrl = await s3Service.getImageUrl(image.key);
-                    if (signedUrl) {
-                        // Use the filename without extension as a potential ID
-                        const potentialId = imageName.replace(/\.\w+$/, '');
-                        imageUrlMap[potentialId] = signedUrl;
-                    }
+            // First, map by externalId
+            s3Images.forEach(image => {
+                if (image.externalId) {
+                    imageMap.set(image.externalId, image);
                 }
-            }
+            });
 
-            // Enhance the response with S3 URLs and any stored metadata
+            // Also map by filename for partial matching
+            s3Images.forEach(image => {
+                const filename = image.key.split('/').pop() || '';
+                if (filename) {
+                    imageMap.set(filename, image);
+                }
+            });
+
+            // Enhance faces with S3 URLs and metadata
             const enhancedFaces = await Promise.all((response.Faces || []).map(async face => {
                 const result: any = { ...face };
+                let s3Key = null;
 
-                // Try to find an image URL for this face
-                if (face.FaceId) {
-                    // Check metadata first
-                    if (faceMetadata[face.FaceId]) {
-                        result.Metadata = faceMetadata[face.FaceId];
+                // Try to find matching image using ExternalImageId
+                if (face.ExternalImageId) {
+                    // Check if we can directly find it by externalId
+                    if (imageMap.has(face.ExternalImageId)) {
+                        s3Key = imageMap.get(face.ExternalImageId).key;
+                    } else {
+                        // Try to convert ExternalImageId to S3 path
+                        const s3Path = convertExternalIdToS3Path(face.ExternalImageId);
 
-                        // If we have an S3 key in metadata, get a signed URL
-                        if (faceMetadata[face.FaceId].s3Key) {
-                            result.ImageURL = await s3Service.getImageUrl(faceMetadata[face.FaceId].s3Key);
-                        }
-                    }
+                        // Look for image with this path
+                        const matchingImage = s3Images.find(img => img.key === s3Path);
+                        if (matchingImage) {
+                            s3Key = matchingImage.key;
+                        } else {
+                            // Try to extract the filename and look for a partial match
+                            const parts = face.ExternalImageId.split(':');
+                            const filename = parts[parts.length - 1];
 
-                    // If we don't have an image URL yet, try using the external ID
-                    if (!result.ImageURL && face.ExternalImageId) {
-                        const externalId = face.ExternalImageId;
-                        if (imageUrlMap[externalId]) {
-                            result.ImageURL = imageUrlMap[externalId];
-                        }
-                    }
-
-                    // If we still don't have an image URL, try generic matching
-                    if (!result.ImageURL) {
-                        // Try to find any image that might match this face
-                        for (const [id, url] of Object.entries(imageUrlMap)) {
-                            if (face.FaceId && id.includes(face.FaceId.substring(0, 6))) {
-                                result.ImageURL = url;
-                                break;
+                            if (filename && imageMap.has(filename)) {
+                                s3Key = imageMap.get(filename).key;
                             }
                         }
                     }
+                }
+
+                // If still no match, check metadata
+                if (!s3Key && face.FaceId && faceMetadata[face.FaceId]) {
+                    s3Key = faceMetadata[face.FaceId].s3Key;
+                }
+
+                // If we found an S3 key, get its URL
+                if (s3Key) {
+                    result.ImageURL = await s3Service.getImageUrl(s3Key);
+                }
+
+                // Include any metadata
+                if (face.FaceId && faceMetadata[face.FaceId]) {
+                    result.Metadata = faceMetadata[face.FaceId];
                 }
 
                 return result;

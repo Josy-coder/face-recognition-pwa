@@ -81,9 +81,31 @@ export default function HomePage() {
     // Store the selected data in localStorage
     localStorage.setItem('faceRecog_searchImage', croppedImage!);
     localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(selectedPaths));
+  };
+
+  const handleSearch = () => {
+    // Ensure we have valid data before navigating
+    if (!croppedImage) {
+      toast.error("No image available. Please take or upload a photo first.");
+      return;
+    }
+
+    // Use PNG by default if no folders selected
+    const selectedPaths = selectedFolders.length > 0 ? selectedFolders : ['PNG'];
+
+    // Store the data in localStorage
+    localStorage.setItem('faceRecog_searchImage', croppedImage);
+    localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(selectedPaths));
 
     // Navigate to search page
-    router.push('/search');
+    try {
+      console.log("Navigating to search page...");
+      router.push('/search');
+    } catch (error) {
+      console.error("Router navigation failed:", error);
+      // Fallback to direct navigation
+      window.location.href = '/search';
+    }
   };
 
   // Back function for folder selection
@@ -222,14 +244,14 @@ export default function HomePage() {
                     )}
                   </div>
 
-                  <FolderSelector onFolderSelect={setSelectedFolders} />
+                  <FolderSelector onFolderSelect={handleFolderSelect} />
 
                   <div className="mt-6 flex justify-between">
                     <Button variant="ghost" onClick={handleFolderBack}>
                       Back
                     </Button>
                     <Button
-                        onClick={() => handleFolderSelect(selectedFolders)}
+                        onClick={handleSearch}
                         className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
                     >
                       Search

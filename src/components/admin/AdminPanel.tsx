@@ -9,6 +9,12 @@ import { Progress } from '@/components/ui/progress';
 import CameraCapture from '@/components/capture/CameraCapture';
 import S3FolderBrowser from '@/components/admin/S3FolderBrowser';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+    convertExternalIdToS3Path,
+    extractNameFromExternalId,
+    groupFacesByFolder,
+    convertS3PathToExternalId
+} from '@/utils/path-conversion';
 
 interface Collection {
     id: string;
@@ -22,7 +28,16 @@ interface Face {
     ImageId?: string;
     Confidence?: number;
     ImageURL?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Metadata?: any;
+    s3Path?: string; // Added for converted path
+}
+
+interface FolderFaces {
+    faces: Face[];
+    folder: string;
+    displayPath: string;
+    subfolders: string[];
 }
 
 const AdminPanel = () => {
@@ -33,16 +48,18 @@ const AdminPanel = () => {
     const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
     const [selectedFolderPath, setSelectedFolderPath] = useState<string>('');
     const [faces, setFaces] = useState<Face[]>([]);
+    const [facesByFolder, setFacesByFolder] = useState<Record<string, FolderFaces>>({});
+    const [currentFolderPath, setCurrentFolderPath] = useState<string>('');
     const [newCollectionId, setNewCollectionId] = useState('');
-    const [newCollectionFolder, setNewCollectionFolder] = useState('');
+    const [, setNewCollectionFolder] = useState('');
     const [loading, setLoading] = useState(false);
     const [captureImage, setCaptureImage] = useState<string | null>(null);
     const [externalImageId, setExternalImageId] = useState('');
     const [progress, setProgress] = useState(0);
     const [activeTab, setActiveTab] = useState('collections');
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-    const [showFileBrowser, setShowFileBrowser] = useState(false);
-    const [currentImagePaths, setCurrentImagePaths] = useState<string[]>([]);
+    const [, setCurrentImagePaths] = useState<string[]>([]);
+    const [, setFolderImageCounts] = useState<Record<string, number>>({});
 
     // Base64 encode credentials for Basic Auth
     const getAuthHeader = () => {
@@ -159,6 +176,7 @@ const AdminPanel = () => {
             if (selectedCollection === collectionId) {
                 setSelectedCollection(null);
                 setFaces([]);
+                setFacesByFolder({});
             }
 
             fetchCollections();
@@ -187,14 +205,38 @@ const AdminPanel = () => {
             }
 
             const data = await response.json();
-            setFaces(data.faces || []);
 
-            // Update current image paths
-            const imagePaths = (data.faces || [])
-                .filter((face: Face) => face.ImageURL)
-                .map((face: Face) => face.ImageURL as string);
+            // Process faces to include S3 path
+            const processedFaces = (data.faces || []).map((face: Face) => {
+                let s3Path = face.ImageURL || '';
+
+                // If we have ExternalImageId, convert it to S3 path format
+                if (face.ExternalImageId) {
+                    s3Path = convertExternalIdToS3Path(face.ExternalImageId);
+                }
+
+                return {
+                    ...face,
+                    s3Path
+                };
+            });
+
+            setFaces(processedFaces);
+
+            // Group faces by folder hierarchy
+            const grouped = groupFacesByFolder(processedFaces);
+            setFacesByFolder(grouped);
+            setCurrentFolderPath(''); // Reset to root folder
+
+            // Get current image paths for reference
+            const imagePaths = processedFaces
+                .filter((face: Face) => face.s3Path)
+                .map((face: Face) => face.s3Path as string);
 
             setCurrentImagePaths(imagePaths);
+
+            // Fetch image counts for each folder
+            fetchFolderImageCounts(data.s3Folder || '');
 
             setProgress(100);
         } catch (error) {
@@ -202,6 +244,25 @@ const AdminPanel = () => {
             toast.error('Failed to fetch faces');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchFolderImageCounts = async (folderPath: string) => {
+        try {
+            const response = await fetch(`/api/s3/folder-stats?prefix=${encodeURIComponent(folderPath)}`, {
+                headers: {
+                    'Authorization': getAuthHeader(),
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch folder statistics');
+            }
+
+            const data = await response.json();
+            setFolderImageCounts(data.folderCounts || {});
+        } catch (error) {
+            console.error('Error fetching folder statistics:', error);
         }
     };
 
@@ -241,6 +302,10 @@ const AdminPanel = () => {
                 sanitizedId = `face-${Date.now()}`;
             }
 
+            // Add folderPath to make proper external ID
+            const s3Path = `${folderPath}/${sanitizedId}.jpg`;
+            const externalIdForUpload = convertS3PathToExternalId(s3Path);
+
             const response = await fetch(`/api/collections/${selectedCollection}/faces`, {
                 method: 'POST',
                 headers: {
@@ -249,7 +314,7 @@ const AdminPanel = () => {
                 },
                 body: JSON.stringify({
                     image: captureImage,
-                    externalImageId: sanitizedId,
+                    externalImageId: externalIdForUpload,
                     additionalInfo: {
                         ...additionalInfo,
                         folderPath
@@ -314,9 +379,11 @@ const AdminPanel = () => {
                     // Convert file to base64
                     const base64 = await fileToBase64(file);
 
-                    // Create external ID from filename
-                    const fileName = file.name.replace(/\.[^/.]+$/, ""); // remove extension
-                    const sanitizedId = fileName.replace(/[^a-zA-Z0-9_\-\.:]*/g, '');
+                    // Create proper S3 path
+                    const s3Path = `${folderPath}/${file.name}`;
+
+                    // Convert to ExternalImageId format (replacing spaces with underscores and slashes with colons)
+                    const externalIdForUpload = convertS3PathToExternalId(s3Path);
 
                     // Upload to S3 and index in Rekognition
                     const response = await fetch(`/api/collections/${selectedCollection}/faces`, {
@@ -327,9 +394,9 @@ const AdminPanel = () => {
                         },
                         body: JSON.stringify({
                             image: base64,
-                            externalImageId: sanitizedId,
+                            externalImageId: externalIdForUpload,
                             additionalInfo: {
-                                name: fileName,
+                                name: file.name.replace(/\.[^/.]+$/, ""), // Remove extension
                                 originalFilename: file.name,
                                 folderPath
                             }
@@ -451,7 +518,12 @@ const AdminPanel = () => {
         setUploadedFiles(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Update selected collection and fetch faces when changed
+// Navigate to a specific folder in the folder hierarchy
+    const navigateToFolder = (folderPath: string) => {
+        setCurrentFolderPath(folderPath);
+    };
+
+// Update selected collection and fetch faces when changed
     useEffect(() => {
         if (selectedCollection) {
             fetchFaces(selectedCollection);
@@ -471,24 +543,166 @@ const AdminPanel = () => {
         setActiveTab(value);
     };
 
-    // Parse external image ID to get name
-    const parseExternalId = (externalId?: string) => {
-        if (!externalId) return 'Unnamed Face';
-
-        try {
-            // Check if it's a JSON string
-            if (externalId.startsWith('{') && externalId.endsWith('}')) {
-                const data = JSON.parse(externalId);
-                return data.name || 'Unnamed Face';
-            }
-
-            // Otherwise just use the ID directly, with some cleanup
-            return externalId.replace(/-/g, ' ').replace(/^face [\d]+$/, 'Unnamed Face');
-        } catch {
-            return externalId;
+    // Render folder hierarchy in the faces view
+    const renderFolderHierarchy = () => {
+        if (!facesByFolder || !facesByFolder['']) {
+            return <div className="p-4 text-center text-slate-500">No folder hierarchy available</div>;
         }
-    };
 
+        // Get current folder data
+        const currentFolder = facesByFolder[currentFolderPath];
+        if (!currentFolder) {
+            return <div className="p-4 text-center text-slate-500">Folder not found</div>;
+        }
+
+        return (
+            <div className="space-y-4">
+                {/* Breadcrumb navigation */}
+                <div className="flex items-center space-x-2 text-sm">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigateToFolder('')}
+                        className={`${!currentFolderPath ? 'font-semibold text-primary' : ''}`}
+                    >
+                        Root
+                    </Button>
+
+                    {currentFolderPath && currentFolder.displayPath.split('/').map((part, index, array) => (
+                        <div key={index} className="flex items-center">
+                            <span className="mx-1">/</span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    // Navigate to this level in the path
+                                    const targetPath = currentFolderPath
+                                        .split(':')
+                                        .slice(0, index + 1)
+                                        .join(':');
+                                    navigateToFolder(targetPath);
+                                }}
+                                className={`${index === array.length - 1 ? 'font-semibold text-primary' : ''}`}
+                            >
+                                {part}
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Faces in current folder */}
+                {currentFolder.faces.length > 0 && (
+                    <div>
+                        <h4 className="font-medium mb-3">Faces in this folder:</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {currentFolder.faces.map(face => {
+                                const name = extractNameFromExternalId(face.ExternalImageId || '');
+
+                                return (
+                                    <Card key={face.FaceId} className="overflow-hidden">
+                                        <CardContent className="p-4">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <div className="font-medium truncate">
+                                                        {name}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 truncate">
+                                                        ID: {face.FaceId.substring(0, 8)}...
+                                                    </div>
+                                                    {face.Confidence && (
+                                                        <div className="text-xs text-slate-500">
+                                                            Confidence: {face.Confidence.toFixed(2)}%
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => deleteFace(face.FaceId)}
+                                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </Button>
+                                            </div>
+
+                                            {/* Display face image */}
+                                            {(face.ImageURL || face.s3Path) && (
+                                                <div className="mt-3 border rounded-md overflow-hidden">
+                                                    <img
+                                                        src={face.ImageURL || face.s3Path}
+                                                        alt={name}
+                                                        className="w-full h-32 object-cover"
+                                                        onError={(e) => {
+                                                            // Fallback to placeholder if image fails to load
+                                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {/* Show external ID for debugging */}
+                                            <div className="mt-2 text-xs text-slate-400 truncate">
+                                                Path: {face.s3Path || convertExternalIdToS3Path(face.ExternalImageId || '')}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* Subfolders */}
+                {currentFolder.subfolders.length > 0 && (
+                    <div className="mt-6">
+                        <h4 className="font-medium mb-3">Subfolders:</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {currentFolder.subfolders.map(subfolder => {
+                                const subfolderData = facesByFolder[subfolder];
+                                if (!subfolderData) return null;
+
+                                // Get folder name (last part of display path)
+                                const folderName = subfolderData.displayPath.split('/').pop() || subfolder;
+
+                                return (
+                                    <Card
+                                        key={subfolder}
+                                        className="cursor-pointer hover:border-primary transition-colors"
+                                        onClick={() => navigateToFolder(subfolder)}
+                                    >
+                                        <CardContent className="p-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="text-slate-500">
+                                                    <FolderOpen size={24} />
+                                                </div>
+                                                <div className="flex-grow">
+                                                    <h5 className="font-medium">{folderName}</h5>
+                                                    <div className="text-sm text-slate-500">
+                                                        {subfolderData.faces.length} faces
+                                                        {subfolderData.subfolders.length > 0 &&
+                                                            `, ${subfolderData.subfolders.length} subfolders`}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {currentFolder.faces.length === 0 && currentFolder.subfolders.length === 0 && (
+                    <div className="p-6 text-center">
+                        <AlertCircle className="mx-auto h-12 w-12 text-slate-400 mb-4" />
+                        <p className="text-slate-600 dark:text-slate-400">
+                            This folder is empty
+                        </p>
+                    </div>
+                )}
+            </div>
+        );
+    };
     if (!isAuthenticated) {
         return (
             <Card className="w-full max-w-md mx-auto">
@@ -622,7 +836,7 @@ const AdminPanel = () => {
                                                         </div>
                                                         {collection.imageCount !== undefined && (
                                                             <div className="text-xs text-slate-500 mt-1">
-                                                                {collection.imageCount} images
+                                                                {collection.imageCount && collection.imageCount >= 999 ? '999+' : collection.imageCount} images
                                                             </div>
                                                         )}
                                                     </div>
@@ -673,47 +887,9 @@ const AdminPanel = () => {
                                             </p>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                            {faces.map((face) => (
-                                                <Card key={face.FaceId} className="overflow-hidden">
-                                                    <CardContent className="p-4">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <div className="font-medium truncate">
-                                                                    {parseExternalId(face.ExternalImageId)}
-                                                                </div>
-                                                                <div className="text-xs text-slate-500 truncate">
-                                                                    ID: {face.FaceId.substring(0, 8)}...
-                                                                </div>
-                                                                {face.Confidence && (
-                                                                    <div className="text-xs text-slate-500">
-                                                                        Confidence: {face.Confidence.toFixed(2)}%
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={() => deleteFace(face.FaceId)}
-                                                                className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </Button>
-                                                        </div>
-
-                                                        {/* Display face image if available */}
-                                                        {face.ImageURL && (
-                                                            <div className="mt-3 border rounded-md overflow-hidden">
-                                                                <img
-                                                                    src={face.ImageURL}
-                                                                    alt={parseExternalId(face.ExternalImageId)}
-                                                                    className="w-full h-32 object-cover"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </CardContent>
-                                                </Card>
-                                            ))}
+                                        <div>
+                                            {/* Render folder hierarchy view */}
+                                            {renderFolderHierarchy()}
                                         </div>
                                     )}
                                 </div>

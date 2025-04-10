@@ -6,9 +6,10 @@ import {
 } from '@aws-sdk/client-s3';
 import { getS3Client } from '@/lib/aws-config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { convertS3PathToExternalId } from '../utils/path-conversion';
 
 class S3Service {
-    private readonly bucketName = 'facerecog-app-storage';
+    private readonly bucketName = process.env.NEXT_PUBLIC_S3_BUCKET || 'facerecog-app-storage';
 
     /**
      * Upload an image to S3
@@ -105,7 +106,7 @@ class S3Service {
     /**
      * List images in a folder (including subfolders)
      */
-    async listImages(prefix = ''): Promise<{key: string, lastModified: Date | null}[]> {
+    async listImages(prefix = ''): Promise<{key: string, lastModified: Date | null, folder: string}[]> {
         try {
             const s3 = getS3Client();
 
@@ -126,15 +127,115 @@ class S3Service {
                         (key.endsWith('.jpg') || key.endsWith('.jpeg') ||
                             key.endsWith('.png') || key.endsWith('.gif'));
                 })
-                .map(item => ({
-                    key: item.Key || '',
-                    lastModified: item.LastModified || null
-                }));
+                .map(item => {
+                    const key = item.Key || '';
+
+                    // Extract folder path from the key
+                    let folder = '';
+                    const lastSlashIndex = key.lastIndexOf('/');
+                    if (lastSlashIndex !== -1) {
+                        folder = key.substring(0, lastSlashIndex);
+                    }
+
+                    return {
+                        key,
+                        folder,
+                        lastModified: item.LastModified || null
+                    };
+                });
 
             return images;
         } catch (error) {
             console.error('Error listing images:', error);
             return [];
+        }
+    }
+
+    /**
+     * Get all images recursively from a folder and its subfolders
+     */
+    async listAllImagesRecursively(prefix = ''): Promise<{key: string, lastModified: Date | null, folder: string, externalId: string}[]> {
+        try {
+            const s3 = getS3Client();
+
+            // Use continuation token for listing more than 1000 objects
+            let allImages: {key: string, lastModified: Date | null, folder: string, externalId: string}[] = [];
+            let continuationToken: string | undefined = undefined;
+
+            do {
+                const command = new ListObjectsV2Command({
+                    Bucket: this.bucketName,
+                    Prefix: prefix,
+                    MaxKeys: 1000,
+                    ContinuationToken: continuationToken
+                });
+
+                const response = await s3.send(command);
+
+                // Process this batch of images
+                const images = (response.Contents || [])
+                    .filter(item => {
+                        const key = item.Key || '';
+                        // Exclude "folders" and non-image files
+                        return !key.endsWith('/') &&
+                            (key.endsWith('.jpg') || key.endsWith('.jpeg') ||
+                                key.endsWith('.png') || key.endsWith('.gif'));
+                    })
+                    .map(item => {
+                        const key = item.Key || '';
+
+                        // Extract folder path from the key
+                        let folder = '';
+                        const lastSlashIndex = key.lastIndexOf('/');
+                        if (lastSlashIndex !== -1) {
+                            folder = key.substring(0, lastSlashIndex);
+                        }
+
+                        // Convert S3 path to external ID format
+                        const externalId = convertS3PathToExternalId(key);
+
+                        return {
+                            key,
+                            folder,
+                            lastModified: item.LastModified || null,
+                            externalId
+                        };
+                    });
+
+                allImages = [...allImages, ...images];
+
+                // Check if there are more images to fetch
+                continuationToken = response.NextContinuationToken;
+
+            } while (continuationToken);
+
+            return allImages;
+        } catch (error) {
+            console.error('Error listing all images recursively:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get image count by subfolder
+     */
+    async getImageCountBySubfolder(prefix = ''): Promise<Record<string, number>> {
+        try {
+            const images = await this.listAllImagesRecursively(prefix);
+            const folderCounts: Record<string, number> = {};
+
+            // Count images in each folder
+            images.forEach(image => {
+                if (!folderCounts[image.folder]) {
+                    folderCounts[image.folder] = 0;
+                }
+                folderCounts[image.folder]++;
+            });
+
+            return folderCounts;
+        } catch (error) {
+            console.error('Error getting image count by subfolder:', error);
+            return {};
         }
     }
 
@@ -221,6 +322,93 @@ class S3Service {
         } catch (error) {
             console.error('Error deleting object:', error);
             return false;
+        }
+    }
+
+    /**
+     * Get all subfolders within a folder recursively
+     */
+    async getAllSubfolders(prefix = ''): Promise<string[]> {
+        try {
+            const s3 = getS3Client();
+            let result: string[] = [];
+
+            // Get immediate subfolders
+            const command = new ListObjectsV2Command({
+                Bucket: this.bucketName,
+                Delimiter: '/',
+                Prefix: prefix
+            });
+
+            const response = await s3.send(command);
+
+            // Extract common prefixes (immediate subfolders)
+            const subfolders = (response.CommonPrefixes || [])
+                .map(prefix => prefix.Prefix || '')
+                .filter(prefixPath => prefixPath !== prefix);
+
+            // Add these subfolders to result
+            result = [...result, ...subfolders];
+
+            // Recursively get subfolders for each subfolder
+            for (const subfolder of subfolders) {
+                const childSubfolders = await this.getAllSubfolders(subfolder);
+                result = [...result, ...childSubfolders];
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Error getting all subfolders:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get folder hierarchy information with image counts
+     */
+    async getFolderHierarchyWithImageCounts(prefix = ''): Promise<any> {
+        try {
+            // Get all subfolders
+            const allFolders = await this.getAllSubfolders(prefix);
+
+            // Add the current folder to the list
+            const foldersToProcess = [prefix, ...allFolders];
+
+            // Get image counts for each folder
+            const folderCounts: Record<string, number> = {};
+
+            for (const folder of foldersToProcess) {
+                const images = await this.listImages(folder);
+                folderCounts[folder] = images.length;
+            }
+
+            // Build folder hierarchy
+            const hierarchy: any = {};
+
+            foldersToProcess.forEach(folder => {
+                const parts = folder.split('/').filter(Boolean);
+
+                let currentLevel = hierarchy;
+                let currentPath = '';
+
+                parts.forEach((part, index) => {
+                    currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+                    if (!currentLevel[part]) {
+                        currentLevel[part] = {
+                            _path: currentPath,
+                            _imageCount: folderCounts[`${currentPath}/`] || 0
+                        };
+                    }
+
+                    currentLevel = currentLevel[part];
+                });
+            });
+
+            return hierarchy;
+        } catch (error) {
+            console.error('Error getting folder hierarchy with image counts:', error);
+            return {};
         }
     }
 }

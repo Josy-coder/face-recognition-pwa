@@ -2,9 +2,10 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { SearchFacesByImageCommand } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
 import { s3Service } from '@/services/s3-service';
+import { convertExternalIdToS3Path } from '@/utils/path-conversion';
 
-// Collection to folder mapping - in a production app, store this in a database
-// This should match the mapping used in collections/index.ts
+
+// This map is used to cache the S3 folder paths for collections
 const COLLECTION_TO_FOLDER_MAP: Record<string, string> = {};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -55,31 +56,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
         }
 
-        // Get all images in this folder to map to faces
-        const s3Images = await s3Service.listImages(s3FolderPath);
-        console.log(`Found ${s3Images.length} images in S3 folder: ${s3FolderPath}`);
+        // Get all images in all subfolders recursively
+        const s3Images = await s3Service.listAllImagesRecursively(s3FolderPath);
+        console.log(`Found ${s3Images.length} images in S3 folder structure starting at: ${s3FolderPath}`);
 
-        // Create a map of externalImageId/faceId to image URLs
-        const imageUrlMap: Record<string, string> = {};
-
-        // Get signed URLs for all images
-        for (const image of s3Images) {
-            const imageName = image.key.split('/').pop() || '';
-            if (imageName) {
-                const imageUrl = await s3Service.getImageUrl(image.key);
-                if (imageUrl) {
-                    // Map by filename without extension as potential external ID
-                    const potentialId = imageName.replace(/\.\w+$/, '');
-                    imageUrlMap[potentialId] = imageUrl;
-                }
+        // Create a map for quick lookup by externalId and by S3 path
+        const imageMap = new Map();
+        s3Images.forEach(image => {
+            if (image.externalId) {
+                imageMap.set(image.externalId, image);
             }
-        }
+            imageMap.set(image.key, image);
+        });
 
         // Process each face match to include an image URL
         const enhancedMatches = await Promise.all((response.FaceMatches || []).map(async (match) => {
             let imageSrc = '/profile-placeholder.jpg'; // Default placeholder
             let personInfo: any = null;
             let folder = s3FolderPath;
+            let s3Key: string | null = null;
 
             // Try to extract external ID for matching
             const externalId = match.Face?.ExternalImageId;
@@ -96,6 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                             const url = await s3Service.getImageUrl(personInfo.s3Key);
                             if (url) {
                                 imageSrc = url;
+                                s3Key = personInfo.s3Key;
                                 folder = personInfo.s3Folder || folder;
                             }
                         }
@@ -104,9 +100,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     }
                 }
 
-                // If we couldn't get a URL from JSON, try direct mapping with external ID
-                if (imageSrc === '/profile-placeholder.jpg' && imageUrlMap[externalId]) {
-                    imageSrc = imageUrlMap[externalId];
+                // If externalId follows our convention (contains colons), convert it to S3 path
+                if (!s3Key && externalId.includes(':')) {
+                    const s3Path = convertExternalIdToS3Path(externalId);
+
+                    // Look for this exact path
+                    if (imageMap.has(s3Path)) {
+                        const matchedImage = imageMap.get(s3Path);
+                        s3Key = matchedImage.key;
+
+                        // Get the URL
+                        const url = await s3Service.getImageUrl(s3Key);
+                        if (url) {
+                            imageSrc = url;
+                        }
+
+                        // Extract folder
+                        const lastSlashIndex = s3Path.lastIndexOf('/');
+                        if (lastSlashIndex !== -1) {
+                            folder = s3Path.substring(0, lastSlashIndex);
+                        }
+                    } else {
+                        // Try to find any image with a similar path
+                        for (const image of s3Images) {
+                            if (image.key === s3Path || image.key.endsWith('/' + s3Path)) {
+                                s3Key = image.key;
+                                const url = await s3Service.getImageUrl(s3Key);
+                                if (url) {
+                                    imageSrc = url;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If we still don't have an image URL, try direct matching with external ID
+                if (imageSrc === '/profile-placeholder.jpg' && externalId && imageMap.has(externalId)) {
+                    const matchedImage = imageMap.get(externalId);
+                    s3Key = matchedImage.key;
+                    const url = await s3Service.getImageUrl(s3Key);
+                    if (url) {
+                        imageSrc = url;
+                    }
                 }
 
                 // If we still don't have an image, try partial matching with face ID
@@ -114,25 +150,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     const faceId = match.Face.FaceId;
 
                     // Look for any key in the map that might contain the face ID
-                    for (const [key, url] of Object.entries(imageUrlMap)) {
+                    for (const [key, image] of imageMap.entries()) {
                         if (key.includes(faceId.substring(0, 8))) {
-                            imageSrc = url;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Try filename matching as a last resort
-            if (imageSrc === '/profile-placeholder.jpg') {
-                // Try matching any filename that has a similar pattern to the face ID
-                const faceId = match.Face?.FaceId;
-                if (faceId) {
-                    for (const image of s3Images) {
-                        const filename = image.key.split('/').pop() || '';
-                        // Check if the filename looks like it could be related to this face
-                        if (filename.includes(faceId.substring(0, 8))) {
-                            const url = await s3Service.getImageUrl(image.key);
+                            s3Key = image.key;
+                            const url = await s3Service.getImageUrl(s3Key);
                             if (url) {
                                 imageSrc = url;
                                 break;
@@ -142,16 +163,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
             }
 
-            // Determine name and other info
-            const name = externalId ?
-                (personInfo?.name || externalId.replace(/-/g, ' ')) :
-                `Face ${match.Face?.FaceId?.substring(0, 8) || 'Unknown'}`;
+            // Determine name and other info from external ID
+            let name = 'Unknown';
+            if (externalId) {
+                if (personInfo?.name) {
+                    name = personInfo.name;
+                } else if (externalId.includes(':')) {
+                    // Extract filename from the last segment of the external ID
+                    const parts = externalId.split(':');
+                    const filename = parts[parts.length - 1];
+
+                    // Remove extension if present
+                    const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+
+                    // Format the name (replace underscores with spaces)
+                    name = nameWithoutExt.replace(/_/g, ' ');
+                } else {
+                    name = externalId.replace(/-/g, ' ');
+                }
+            }
+
+            // Get folder hierarchy as path segments
+            const folderSegments = folder.split('/').filter(Boolean);
 
             return {
                 ...match,
                 imageSrc,
                 folder,
+                folderSegments,
+                s3Key,
                 ExternalImageId: externalId,
+                displayName: name,
                 personInfo: personInfo || {
                     name
                 }
