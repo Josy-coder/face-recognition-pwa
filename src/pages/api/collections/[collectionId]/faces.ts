@@ -36,7 +36,8 @@ const isPublicRegistration = (req: NextApiRequest, collectionId: string) => {
 // Collection to folder mapping - in a production app, store this in a database
 const COLLECTION_TO_FOLDER_MAP: Record<string, string> = {};
 
-// Face metadata storage - in a production app, store this in a database
+// Face metadata storage
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const faceMetadata: Record<string, any> = {};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

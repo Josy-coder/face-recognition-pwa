@@ -68,6 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Error getting collection info:', error);
 
         // Handle case where collection doesn't exist
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((error as any).name === 'ResourceNotFoundException') {
             return res.status(404).json({
                 message: 'Collection not found',

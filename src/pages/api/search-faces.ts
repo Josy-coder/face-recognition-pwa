@@ -72,6 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Process each face match to include an image URL
         const enhancedMatches = await Promise.all((response.FaceMatches || []).map(async (match) => {
             let imageSrc = '/profile-placeholder.jpg'; // Default placeholder
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let personInfo: any = null;
             let folder = s3FolderPath;
             let s3Key: string | null = null;
@@ -110,7 +111,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         s3Key = matchedImage.key;
 
                         // Get the URL
-                        const url = await s3Service.getImageUrl(s3Key);
+                        const url = s3Key ? await s3Service.getImageUrl(s3Key) : null;
                         if (url) {
                             imageSrc = url;
                         }
@@ -139,7 +140,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 if (imageSrc === '/profile-placeholder.jpg' && externalId && imageMap.has(externalId)) {
                     const matchedImage = imageMap.get(externalId);
                     s3Key = matchedImage.key;
-                    const url = await s3Service.getImageUrl(s3Key);
+                    const url = s3Key ? await s3Service.getImageUrl(s3Key) : null;
                     if (url) {
                         imageSrc = url;
                     }
@@ -153,7 +154,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     for (const [key, image] of imageMap.entries()) {
                         if (key.includes(faceId.substring(0, 8))) {
                             s3Key = image.key;
-                            const url = await s3Service.getImageUrl(s3Key);
+                            const url = s3Key ? await s3Service.getImageUrl(s3Key) : null;
                             if (url) {
                                 imageSrc = url;
                                 break;

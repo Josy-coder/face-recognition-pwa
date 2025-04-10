@@ -60,7 +60,7 @@ class S3Service {
     /**
      * Get a signed URL for an image in S3
      */
-    async getImageUrl(key: string, expiresIn = 3600): Promise<string | null> {
+    async getImageUrl(key: string, expiresIn: number = 3600): Promise<string | null> {
         try {
             const s3 = getS3Client();
 
@@ -163,25 +163,28 @@ class S3Service {
             let continuationToken: string | undefined = undefined;
 
             do {
-                const command = new ListObjectsV2Command({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const command: any = new ListObjectsV2Command({
                     Bucket: this.bucketName,
                     Prefix: prefix,
                     MaxKeys: 1000,
                     ContinuationToken: continuationToken
                 });
 
-                const response = await s3.send(command);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const response: any = await s3.send(command);
 
                 // Process this batch of images
                 const images = (response.Contents || [])
-                    .filter(item => {
+                    .filter((item: { Key: string; }) => {
                         const key = item.Key || '';
                         // Exclude "folders" and non-image files
                         return !key.endsWith('/') &&
                             (key.endsWith('.jpg') || key.endsWith('.jpeg') ||
                                 key.endsWith('.png') || key.endsWith('.gif'));
                     })
-                    .map(item => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    .map((item: { Key: string; LastModified: any; }) => {
                         const key = item.Key || '';
 
                         // Extract folder path from the key
@@ -366,6 +369,7 @@ class S3Service {
     /**
      * Get folder hierarchy information with image counts
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async getFolderHierarchyWithImageCounts(prefix = ''): Promise<any> {
         try {
             // Get all subfolders
@@ -383,6 +387,7 @@ class S3Service {
             }
 
             // Build folder hierarchy
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const hierarchy: any = {};
 
             foldersToProcess.forEach(folder => {
@@ -391,7 +396,7 @@ class S3Service {
                 let currentLevel = hierarchy;
                 let currentPath = '';
 
-                parts.forEach((part, index) => {
+                parts.forEach((part) => {
                     currentPath = currentPath ? `${currentPath}/${part}` : part;
 
                     if (!currentLevel[part]) {

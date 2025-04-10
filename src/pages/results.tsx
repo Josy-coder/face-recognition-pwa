@@ -23,6 +23,7 @@ interface AWSFaceMatch {
     folderSegments?: string[];
     imageSrc?: string;
     displayName?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     personInfo?: any;
     s3Key?: string;
 }
@@ -75,6 +76,7 @@ export default function Results() {
                         let name = match.displayName || 'Unknown Person';
 
                         // Build details object with folder path information
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const details: any = {
                             path: match.folder || 'Unknown',
                             title: 'Unknown Position',
