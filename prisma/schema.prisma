@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String // Hashed password
+  firstName         String?
+  middleName        String?
+  lastName          String?
+  gender            String?
+  dateOfBirth       DateTime?
+  profileImageUrl   String?
+  faceId            String? // AWS Rekognition Face ID (if available)
+  residentialPath   String? // Full path to residential location
+  isEmailVerified   Boolean   @default(false)
+  verificationToken String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  role              Role      @default(USER)
+  registeredPeople  Person[] // People registered by this user
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String // Hashed password
+  firstName String?
+  lastName  String?
+  role      Role     @default(ADMIN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Person {
+  id              String       @id @default(cuid())
+  firstName       String
+  middleName      String?
+  lastName        String?
+  gender          String?
+  dateOfBirth     DateTime?
+  faceId          String? // AWS Rekognition Face ID
+  externalImageId String? // AWS External Image ID (path format)
+  s3ImagePath     String? // S3 path to the image
+  residentialPath String? // Full path to residential location
+  contactInfo     String? // Email or phone
+  additionalInfo  Json? // Additional metadata
+  registeredBy    User?        @relation(fields: [registeredById], references: [id])
+  registeredById  String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  collections     Collection[] // Which collections this person belongs to
+}
+
+model Collection {
+  id              String   @id @default(cuid())
+  name            String   @unique // e.g., PNG Pess Book, ABG, MKA
+  s3FolderPath    String // Root folder path in S3
+  awsCollectionId String   @unique // AWS Rekognition Collection ID
+  description     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  people          Person[]
+}
+
+// Define location hierarchy types
+model Province {
+  id           String     @id @default(cuid())
+  name         String
+  s3FolderPath String // Path in S3
+  districts    District[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([name, s3FolderPath])
+}
+
+model District {
+  id           String   @id @default(cuid())
+  name         String
+  s3FolderPath String // Path in S3
+  province     Province @relation(fields: [provinceId], references: [id])
+  provinceId   String
+  llgs         LLG[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([name, provinceId])
+}
+
+model LLG {
+  id           String   @id @default(cuid())
+  name         String
+  s3FolderPath String // Path in S3
+  district     District @relation(fields: [districtId], references: [id])
+  districtId   String
+  wards        Ward[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([name, districtId])
+}
+
+model Ward {
+  id           String   @id @default(cuid())
+  name         String
+  s3FolderPath String // Path in S3
+  llg          LLG      @relation(fields: [llgId], references: [id])
+  llgId        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([name, llgId])
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
