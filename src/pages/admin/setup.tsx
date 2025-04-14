@@ -32,7 +32,7 @@ export default function AdminSetupPage() {
         setIsLoading(true);
 
         try {
-            const response = await fetch('/api/admin/register', {
+            const response = await fetch('/api/auth/admin/register', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

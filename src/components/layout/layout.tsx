@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import dynamic from 'next/dynamic';
+import { Search, User, LogIn, Home, Menu, X, ChevronDown } from 'lucide-react';
 
 // Dynamically import the PWA prompt component with SSR disabled
 const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt'), {
@@ -18,48 +20,172 @@ interface LayoutProps {
 export default function Layout({
                                    children,
                                    title,
-                                   showHistory = true,
                                    showNewSearch = false
                                }: LayoutProps) {
+    const router = useRouter();
     const [mounted, setMounted] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     // Only show the PWA prompt after initial client-side render
     useEffect(() => {
         setMounted(true);
+
+        // Check if user is logged in
+        const token = localStorage.getItem('auth_token');
+        setIsLoggedIn(!!token);
     }, []);
 
-    return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100">
-            <header className="border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                <div className="container mx-auto py-4 px-4 flex justify-between items-center">
-                    <Link href="/" className="flex items-center space-x-2">
-                        <div className="w-10 h-10 rounded-lg bg-indigo-600 dark:bg-indigo-500 text-white flex items-center justify-center font-bold">F</div>
-                        <span className="font-semibold text-xl">FaceRecog</span>
-                    </Link>
+    // Toggle mobile menu
+    const toggleMobileMenu = () => {
+        setIsMobileMenuOpen(!isMobileMenuOpen);
+    };
 
-                    <div className="flex items-center space-x-4">
-                        {showHistory && (
-                            <Link href="/history" className="text-sm text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-                                History
+    // Close mobile menu on navigation
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [router.pathname]);
+
+    return (
+        <div className="min-h-screen flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+            <header className="sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-sm">
+                <div className="container mx-auto py-3 px-4">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center space-x-2">
+                            <Link href="/" className="flex items-center space-x-2">
+                                <div className="w-10 h-10 bg-amber-500 text-white flex items-center justify-center font-bold rounded-md">
+                                    PNG
+                                </div>
+                                <span className="font-bold text-lg hidden sm:inline">PNG Pess Book</span>
                             </Link>
-                        )}
-                        {showNewSearch && (
-                            <Button size="sm" onClick={() => window.location.href = '/'}>
-                                New Search
-                            </Button>
-                        )}
+                        </div>
+
+                        {/* Desktop Navigation */}
+                        <div className="hidden md:flex items-center space-x-6">
+                            <Link href="/" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                <Home size={18} />
+                                <span>Home</span>
+                            </Link>
+
+                            <Link href="/match" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                <Search size={18} />
+                                <span>Face Match</span>
+                            </Link>
+
+                            {isLoggedIn ? (
+                                <div className="relative group">
+                                    <button className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                        <User size={18} />
+                                        <span>Account</span>
+                                        <ChevronDown size={16} />
+                                    </button>
+
+                                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg overflow-hidden z-20 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
+                                        <div className="py-1">
+                                            <Link href="/profile" className="block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700">
+                                                My Profile
+                                            </Link>
+                                            <button
+                                                className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                onClick={() => {
+                                                    localStorage.removeItem('auth_token');
+                                                    router.push('/');
+                                                }}
+                                            >
+                                                Logout
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <Link href="/login" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                    <LogIn size={18} />
+                                    <span>Login</span>
+                                </Link>
+                            )}
+
+                            {showNewSearch && (
+                                <Button size="sm" onClick={() => router.push('/')}>
+                                    New Search
+                                </Button>
+                            )}
+                        </div>
+
+                        {/* Mobile menu button */}
+                        <button className="md:hidden" onClick={toggleMobileMenu}>
+                            {isMobileMenuOpen ? (
+                                <X size={24} className="text-slate-700 dark:text-slate-300" />
+                            ) : (
+                                <Menu size={24} className="text-slate-700 dark:text-slate-300" />
+                            )}
+                        </button>
                     </div>
+
+                    {/* Mobile Navigation */}
+                    {isMobileMenuOpen && (
+                        <div className="md:hidden mt-4 pb-4 border-t border-slate-200 dark:border-slate-700">
+                            <div className="flex flex-col space-y-3 pt-4">
+                                <Link href="/" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                    <Home size={18} />
+                                    <span>Home</span>
+                                </Link>
+
+                                <Link href="/match" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                    <Search size={18} />
+                                    <span>Face Match</span>
+                                </Link>
+
+                                {isLoggedIn ? (
+                                    <>
+                                        <Link href="/profile" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                            <User size={18} />
+                                            <span>My Profile</span>
+                                        </Link>
+                                        <button
+                                            className="flex items-center gap-2 py-2 text-red-600"
+                                            onClick={() => {
+                                                localStorage.removeItem('auth_token');
+                                                router.push('/');
+                                            }}
+                                        >
+                                            <LogIn size={18} />
+                                            <span>Logout</span>
+                                        </button>
+                                    </>
+                                ) : (
+                                    <Link href="/login" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                        <LogIn size={18} />
+                                        <span>Login</span>
+                                    </Link>
+                                )}
+
+                                {showNewSearch && (
+                                    <Button size="sm" onClick={() => router.push('/')}>
+                                        New Search
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </header>
 
-            <main className="container mx-auto py-8 px-4">
+            <main className="container mx-auto py-6 px-4 flex-grow">
                 {title && (
                     <div className="mb-6">
-                        <h1 className="text-2xl font-bold text-center md:text-left">{title}</h1>
+                        <h1 className="text-2xl font-bold text-center">{title}</h1>
                     </div>
                 )}
                 {children}
             </main>
+
+            <footer className="bg-slate-50 dark:bg-slate-800 py-6 border-t border-slate-200 dark:border-slate-700 mt-auto">
+                <div className="container mx-auto px-4 text-center">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Community Based Project © {new Date().getFullYear()} PNG PESS BOOK Limited
+                    </p>
+                </div>
+            </footer>
 
             {/* Only show PWA install prompt on client side */}
             {mounted && <PWAInstallPrompt />}

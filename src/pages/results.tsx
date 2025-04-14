@@ -34,6 +34,8 @@ export default function Results() {
     const [searchedFolders, setSearchedFolders] = useState<string[]>([]);
     const [results, setResults] = useState<SearchResult[]>([]);
     const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+    const [primaryMatch, setPrimaryMatch] = useState<SearchResult | null>(null);
+    const [potentialMatches, setPotentialMatches] = useState<SearchResult[]>([]);
     const [analysisComplete, setAnalysisComplete] = useState(false);
 
     const { addSearchRecord } = useSearchStore();
@@ -136,8 +138,23 @@ export default function Results() {
 
                     console.log('Processed results:', processedResults);
                     setResults(processedResults);
-                    if (processedResults.length > 0) {
-                        setSelectedResult(processedResults[0]);
+
+                    // Determine primary match (only if confidence is 99% or above)
+                    const highConfidenceMatch = processedResults.find(result => result.matchConfidence >= 99);
+
+                    if (highConfidenceMatch) {
+                        setPrimaryMatch(highConfidenceMatch);
+                        setPotentialMatches(processedResults.filter(result => result.id !== highConfidenceMatch.id));
+                        setSelectedResult(highConfidenceMatch);
+                    } else {
+                        // No high confidence match, all are potential matches
+                        setPrimaryMatch(null);
+                        setPotentialMatches(processedResults);
+
+                        // Still select the highest confidence match for display
+                        if (processedResults.length > 0) {
+                            setSelectedResult(processedResults[0]);
+                        }
                     }
 
                     // Add to search history
@@ -160,14 +177,15 @@ export default function Results() {
     }, [addSearchRecord]);
 
     const getConfidenceLevelColor = (confidence: number): string => {
-        if (confidence >= 95) return 'bg-green-500 dark:bg-green-600';
-        if (confidence >= 80) return 'bg-emerald-500 dark:bg-emerald-600';
-        if (confidence >= 70) return 'bg-blue-500 dark:bg-blue-600';
-        if (confidence >= 60) return 'bg-yellow-500 dark:bg-yellow-600';
+        if (confidence >= 99) return 'bg-green-500 dark:bg-green-600';
+        if (confidence >= 95) return 'bg-emerald-500 dark:bg-emerald-600';
+        if (confidence >= 80) return 'bg-blue-500 dark:bg-blue-600';
+        if (confidence >= 70) return 'bg-yellow-500 dark:bg-yellow-600';
         return 'bg-slate-500 dark:bg-slate-600';
     };
 
     const getConfidenceLevelText = (confidence: number): string => {
+        if (confidence >= 99) return 'Exact Match';
         if (confidence >= 95) return 'Very High Match';
         if (confidence >= 80) return 'High Match';
         if (confidence >= 70) return 'Moderate Match';
@@ -298,11 +316,98 @@ export default function Results() {
                 </div>
 
                 <div className="md:col-span-2 space-y-6">
-                    {selectedResult && (
+                    {/* Primary Match Section - Only if we have a match with 99% or higher confidence */}
+                    {primaryMatch && (
+                        <Card className="overflow-hidden border-slate-200 dark:border-slate-700">
+                            <div className="bg-green-50 dark:bg-green-900/20 p-4 border-b border-slate-200 dark:border-slate-700">
+                                <div className="flex items-center justify-between">
+                                    <h2 className="font-semibold text-lg">Primary Match</h2>
+                                    <Badge
+                                        className={`${getConfidenceLevelColor(primaryMatch.matchConfidence)} text-white`}
+                                    >
+                                        {primaryMatch.matchConfidence.toFixed(1)}% Match
+                                    </Badge>
+                                </div>
+                            </div>
+
+                            <CardContent className="p-6">
+                                <div className="flex flex-col md:flex-row gap-6">
+                                    <div className="w-full md:w-1/3">
+                                        <div className="aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 mb-4">
+                                            <img
+                                                src={primaryMatch.imageSrc}
+                                                alt={primaryMatch.name}
+                                                className="object-cover w-full h-full"
+                                                onError={(e) => {
+                                                    // Fallback to placeholder if image fails to load
+                                                    (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                }}
+                                            />
+                                        </div>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Match confidence</p>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Progress
+                                                value={primaryMatch.matchConfidence}
+                                                className="h-2"
+                                            />
+                                            <span className="text-sm font-medium">{primaryMatch.matchConfidence.toFixed(1)}%</span>
+                                        </div>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">{getConfidenceLevelText(primaryMatch.matchConfidence)}</p>
+                                    </div>
+
+                                    <div className="w-full md:w-2/3 space-y-4">
+                                        <div>
+                                            <h3 className="text-2xl font-bold">{primaryMatch.name}</h3>
+                                            <p className="text-slate-600 dark:text-slate-400">{primaryMatch.details?.title}</p>
+                                        </div>
+
+                                        <Tabs defaultValue="details">
+                                            <TabsList>
+                                                <TabsTrigger value="details">Details</TabsTrigger>
+                                                <TabsTrigger value="location">Location</TabsTrigger>
+                                            </TabsList>
+
+                                            <TabsContent value="details" className="space-y-4 pt-4">
+                                                {primaryMatch.details && Object.entries(primaryMatch.details)
+                                                    .filter(([key]) => key !== 'title' && key !== 'path')
+                                                    .map(([key, value]) => (
+                                                        <div key={key} className="grid grid-cols-3 gap-1">
+                                                            <div className="text-sm font-medium text-slate-600 dark:text-slate-400 capitalize">
+                                                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                                                            </div>
+                                                            <div className="col-span-2 text-sm">
+                                                                {String(value)}
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                }
+                                            </TabsContent>
+
+                                            <TabsContent value="location" className="pt-4">
+                                                <div className="space-y-4">
+                                                    <div className="grid grid-cols-3 gap-1">
+                                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                            Path
+                                                        </div>
+                                                        <div className="col-span-2 text-sm">
+                                                            {primaryMatch.details.path}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </TabsContent>
+                                        </Tabs>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* If no primary match but we have selected a match from potential matches */}
+                    {!primaryMatch && selectedResult && (
                         <Card className="overflow-hidden border-slate-200 dark:border-slate-700">
                             <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 border-b border-slate-200 dark:border-slate-700">
                                 <div className="flex items-center justify-between">
-                                    <h2 className="font-semibold text-lg">Primary Match</h2>
+                                    <h2 className="font-semibold text-lg">Selected Match</h2>
                                     <Badge
                                         className={`${getConfidenceLevelColor(selectedResult.matchConfidence)} text-white`}
                                     >
@@ -383,11 +488,14 @@ export default function Results() {
                         </Card>
                     )}
 
-                    {results.length > 1 && (
+                    {/* Potential Matches Section */}
+                    {potentialMatches.length > 0 && (
                         <div>
-                            <h3 className="font-semibold text-lg mb-4">Other Potential Matches</h3>
+                            <h3 className="font-semibold text-lg mb-4">
+                                {primaryMatch ? 'Other Potential Matches' : 'Potential Matches'}
+                            </h3>
                             <div className="space-y-3">
-                                {results.slice(1).map(result => (
+                                {potentialMatches.map(result => (
                                     <Card
                                         key={result.id}
                                         className={`

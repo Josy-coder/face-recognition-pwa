@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import {PrismaClient} from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
@@ -25,8 +25,7 @@ export function generateToken(userId: string, role: string): string {
 // Verify JWT token
 export function verifyToken(token: string): { userId: string; role: string } | null {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
-        return decoded;
+        return jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
     } catch (error) {
         return null;
     }
