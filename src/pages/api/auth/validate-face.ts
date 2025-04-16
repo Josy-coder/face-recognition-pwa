@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
 import { SearchFacesByImageCommand } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
-import { loginUser, generateToken } from '@/lib/auth';
+import { generateToken } from '@/lib/auth';
 import { serialize } from 'cookie';
 
 const prisma = new PrismaClient();
@@ -95,6 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.setHeader('Set-Cookie', cookie);
 
         // Return success with user data
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { password: _, ...userData } = user;
         return res.status(200).json({
             message: 'Face validation successful',

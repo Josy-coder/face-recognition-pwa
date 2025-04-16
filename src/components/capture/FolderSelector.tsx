@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, AlertCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 
 interface FolderData {
     name: string;
@@ -15,17 +16,23 @@ interface FolderData {
 interface FolderSelectorProps {
     onFolderSelect: (folderPaths: string[]) => void;
     initialSelected?: string[];
+    minLevel?: number; // Minimum folder level required (0 = collection, 1 = province, 2 = district, etc.)
 }
 
 type CheckState = boolean | 'indeterminate';
 
-export default function FolderSelector({ onFolderSelect, initialSelected = [] }: FolderSelectorProps) {
+export default function FolderSelector({
+                                           onFolderSelect,
+                                           initialSelected = [],
+                                           minLevel = 0
+                                       }: FolderSelectorProps) {
     const [loading, setLoading] = useState(true);
     const [folders, setFolders] = useState<FolderData[]>([]);
     const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
     const [selectedFolders, setSelectedFolders] = useState<Record<string, CheckState>>({});
     const [selectedPaths, setSelectedPaths] = useState<string[]>(initialSelected);
     const [hasFetchedFolders, setHasFetchedFolders] = useState(false);
+    const [invalidSelections, setInvalidSelections] = useState<string[]>([]);
 
     // Process raw folder paths into hierarchical structure
     const processFolderData = useCallback((folderPaths: string[]): FolderData[] => {
@@ -69,7 +76,7 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
         return rootFolders;
     }, []);
 
-    // Fetch folder structure from the API only once
+    // Fetch folder structure from the API
     useEffect(() => {
         if (hasFetchedFolders) return; // Skip if we already fetched
 
@@ -111,6 +118,9 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
                     setSelectedFolders(initialState);
                 }
 
+                // Validate initial selections against minimum level
+                validateSelections(initialSelected);
+
                 // Mark as fetched to prevent additional fetches
                 setHasFetchedFolders(true);
             } catch (error) {
@@ -122,7 +132,7 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
         };
 
         fetchFolders();
-    }, [initialSelected, processFolderData, hasFetchedFolders]); // Only depend on initialSelected
+    }, [initialSelected, processFolderData, hasFetchedFolders, minLevel]);
 
     // Toggle folder expansion
     const toggleExpand = (folderId: string) => {
@@ -130,6 +140,23 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
             ...prev,
             [folderId]: !prev[folderId]
         }));
+    };
+
+    // Check if a folder meets the minimum level requirement
+    const folderMeetsMinLevel = (folder: FolderData): boolean => {
+        const level = folder.path.split('/').length - 1;
+        return level >= minLevel;
+    };
+
+    // Validate selections against minimum level
+    const validateSelections = (paths: string[]) => {
+        const invalid = paths.filter(path => {
+            const level = path.split('/').length - 1;
+            return level < minLevel;
+        });
+
+        setInvalidSelections(invalid);
+        return invalid.length === 0;
     };
 
     // Get the check state for a folder
@@ -159,6 +186,11 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
         const currentState = getCheckState(folder);
         const newState = currentState === true ? false : true;
 
+        // Add visual indication if selecting a folder that doesn't meet minimum level
+        if (newState && !folderMeetsMinLevel(folder)) {
+            toast.warning(`Please select a folder at least ${minLevel} level${minLevel !== 1 ? 's' : ''} deep`);
+        }
+
         // Update this folder and all its descendants
         const updateFolderAndDescendants = (f: FolderData, state: boolean) => {
             const updates: Record<string, CheckState> = { [f.path]: state };
@@ -177,7 +209,7 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
             ...prev,
             ...updates
         }));
-    }, [getCheckState]);
+    }, [getCheckState, minLevel]);
 
     // Update selected paths whenever selections change
     useEffect(() => {
@@ -200,17 +232,25 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
 
         setSelectedPaths(paths);
 
+        // Validate selected paths against minimum level
+        const isValid = validateSelections(paths);
+
+        // Only call onFolderSelect with valid paths
+        const validPaths = isValid ? paths : paths.filter(p => p.split('/').length - 1 >= minLevel);
+
         // Only call onFolderSelect if paths have actually changed
-        if (JSON.stringify(paths) !== JSON.stringify(selectedPaths)) {
-            onFolderSelect(paths);
+        if (JSON.stringify(validPaths) !== JSON.stringify(selectedPaths.filter(p => p.split('/').length - 1 >= minLevel))) {
+            onFolderSelect(validPaths);
         }
-    }, [selectedFolders, folders, onFolderSelect, getCheckState, selectedPaths]);
+    }, [selectedFolders, folders, onFolderSelect, getCheckState, selectedPaths, minLevel]);
 
     // Render a folder item
     const renderFolder = (folder: FolderData, level = 0) => {
         const isExpanded = expandedFolders[folder.path] || false;
         const checkState = getCheckState(folder);
         const hasChildren = folder.children.length > 0;
+        const isTooShallow = !folderMeetsMinLevel(folder);
+        const folderLevel = folder.path.split('/').length - 1;
 
         return (
             <div key={folder.id} className="select-none">
@@ -221,6 +261,7 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
                         hover:bg-slate-100 dark:hover:bg-slate-800
                         transition-colors
                         cursor-pointer
+                        ${isTooShallow ? 'opacity-70' : ''}
                     `}
                 >
                     {hasChildren ? (
@@ -251,9 +292,21 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
                         />
                         <Label
                             htmlFor={folder.id}
-                            className="text-sm cursor-pointer flex-grow"
+                            className={`text-sm cursor-pointer flex-grow ${isTooShallow ? 'text-slate-500' : ''}`}
                         >
                             {folder.name}
+
+                            {/* Show level indicator */}
+                            <span className="ml-2 text-xs text-slate-400">
+                                (Level {folderLevel})
+                            </span>
+
+                            {/* Show warning for shallow folders */}
+                            {isTooShallow && checkState && (
+                                <Badge variant="outline" className="ml-2 text-amber-500 border-amber-500">
+                                    Too shallow
+                                </Badge>
+                            )}
                         </Label>
                     </div>
                 </div>
@@ -270,7 +323,16 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
     return (
         <Card className="border-slate-200 dark:border-slate-700">
             <CardContent className="p-4">
-                <h3 className="font-medium mb-3">Select folders to search:</h3>
+                <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-medium">Select folders:</h3>
+                    {minLevel > 0 && (
+                        <Badge variant="outline" className="text-xs">
+                            <AlertCircle size={12} className="mr-1" />
+                            Min level: {minLevel}
+                        </Badge>
+                    )}
+                </div>
+
                 <div className="max-h-60 overflow-y-auto border rounded-md p-2 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-700">
                     {loading ? (
                         <div className="flex justify-center items-center h-32">
@@ -291,11 +353,33 @@ export default function FolderSelector({ onFolderSelect, initialSelected = [] }:
                         <p className="text-sm text-slate-500 dark:text-slate-400">No folders selected</p>
                     ) : (
                         <div className="text-sm space-y-1 max-h-20 overflow-y-auto">
-                            {selectedPaths.map(path => (
-                                <div key={path} className="py-1 px-2 bg-slate-100 dark:bg-slate-800 rounded-md">
-                                    {path}
-                                </div>
-                            ))}
+                            {selectedPaths.map(path => {
+                                const isInvalid = path.split('/').length - 1 < minLevel;
+                                return (
+                                    <div
+                                        key={path}
+                                        className={`py-1 px-2 rounded-md flex justify-between items-center ${
+                                            isInvalid
+                                                ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200'
+                                                : 'bg-slate-100 dark:bg-slate-800'
+                                        }`}
+                                    >
+                                        <span className="truncate flex-1">{path}</span>
+                                        {isInvalid && (
+                                            <Badge variant="outline" className="ml-2 text-amber-500 border-amber-500 text-xs">
+                                                Too shallow
+                                            </Badge>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {invalidSelections.length > 0 && (
+                        <div className="text-amber-600 dark:text-amber-400 text-xs flex items-center mt-2">
+                            <AlertCircle size={12} className="mr-1" />
+                            Please select folders that are at least {minLevel} level{minLevel !== 1 ? 's' : ''} deep
                         </div>
                     )}
                 </div>

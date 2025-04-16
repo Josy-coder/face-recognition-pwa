@@ -4,10 +4,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import Layout from '@/components/layout/layout';
 import LoadingSkeleton from '@/components/loading';
 import { useSearchStore, SearchResult } from '@/store/search-store';
 import { convertExternalIdToS3Path } from '@/utils/path-conversion';
+import { useRouter } from 'next/router';
 
 interface AWSFaceMatch {
     FaceId: string;
@@ -26,9 +28,11 @@ interface AWSFaceMatch {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     personInfo?: any;
     s3Key?: string;
+    hasUserAccount?: boolean;
 }
 
 export default function Results() {
+    const router = useRouter();
     const [isLoading, setIsLoading] = useState(true);
     const [searchedImage, setSearchedImage] = useState<string | null>(null);
     const [searchedFolders, setSearchedFolders] = useState<string[]>([]);
@@ -37,6 +41,8 @@ export default function Results() {
     const [primaryMatch, setPrimaryMatch] = useState<SearchResult | null>(null);
     const [potentialMatches, setPotentialMatches] = useState<SearchResult[]>([]);
     const [analysisComplete, setAnalysisComplete] = useState(false);
+    const [showMembershipPrompt, setShowMembershipPrompt] = useState(false);
+    const [matchedPersonData, setMatchedPersonData] = useState<SearchResult | null>(null);
 
     const { addSearchRecord } = useSearchStore();
 
@@ -83,6 +89,7 @@ export default function Results() {
                             path: match.folder || 'Unknown',
                             title: 'Unknown Position',
                             department: 'Unknown Department',
+                            hasUserAccount: match.hasUserAccount || false
                         };
 
                         // If we have folderSegments, use them to enhance details
@@ -146,6 +153,12 @@ export default function Results() {
                         setPrimaryMatch(highConfidenceMatch);
                         setPotentialMatches(processedResults.filter(result => result.id !== highConfidenceMatch.id));
                         setSelectedResult(highConfidenceMatch);
+
+                        // Check if person has a user account
+                        if (!highConfidenceMatch.details.hasUserAccount) {
+                            setMatchedPersonData(highConfidenceMatch);
+                            setShowMembershipPrompt(true);
+                        }
                     } else {
                         // No high confidence match, all are potential matches
                         setPrimaryMatch(null);
@@ -175,6 +188,15 @@ export default function Results() {
             setIsLoading(false);
         }
     }, [addSearchRecord]);
+
+    // Handle creating a member account for the matched person
+    const handleCreateMemberAccount = () => {
+        if (matchedPersonData) {
+            // Store the matched person data in localStorage for the registration flow
+            localStorage.setItem('faceRecog_personData', JSON.stringify(matchedPersonData));
+            router.push('/register?fromMatch=true');
+        }
+    };
 
     const getConfidenceLevelColor = (confidence: number): string => {
         if (confidence >= 99) return 'bg-green-500 dark:bg-green-600';
@@ -369,7 +391,7 @@ export default function Results() {
 
                                             <TabsContent value="details" className="space-y-4 pt-4">
                                                 {primaryMatch.details && Object.entries(primaryMatch.details)
-                                                    .filter(([key]) => key !== 'title' && key !== 'path')
+                                                    .filter(([key]) => key !== 'title' && key !== 'path' && key !== 'hasUserAccount')
                                                     .map(([key, value]) => (
                                                         <div key={key} className="grid grid-cols-3 gap-1">
                                                             <div className="text-sm font-medium text-slate-600 dark:text-slate-400 capitalize">
@@ -455,7 +477,7 @@ export default function Results() {
 
                                             <TabsContent value="details" className="space-y-4 pt-4">
                                                 {selectedResult.details && Object.entries(selectedResult.details)
-                                                    .filter(([key]) => key !== 'title' && key !== 'path')
+                                                    .filter(([key]) => key !== 'title' && key !== 'path' && key !== 'hasUserAccount')
                                                     .map(([key, value]) => (
                                                         <div key={key} className="grid grid-cols-3 gap-1">
                                                             <div className="text-sm font-medium text-slate-600 dark:text-slate-400 capitalize">
@@ -539,6 +561,64 @@ export default function Results() {
                     )}
                 </div>
             </div>
+
+            {/* Membership Prompt Dialog - shown when a high-confidence match is found but the person doesn't have a user account */}
+            <Dialog open={showMembershipPrompt} onOpenChange={setShowMembershipPrompt}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Create a Member Account?</DialogTitle>
+                        <DialogDescription>
+                            We found your information in our system, but you don&#39;t have a member account yet.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <p className="mb-4">
+                            Would you like to create an account to manage your information?
+                        </p>
+
+                        {matchedPersonData && (
+                            <div className="flex items-center space-x-4 mb-4">
+                                <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-indigo-100">
+                                    <img
+                                        src={matchedPersonData.imageSrc}
+                                        alt="Profile"
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            // Fallback to placeholder if image fails to load
+                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                        }}
+                                    />
+                                </div>
+                                <div>
+                                    <h3 className="font-medium">{matchedPersonData.name}</h3>
+                                    <p className="text-sm text-slate-600">{matchedPersonData.details.path}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        <p className="text-sm text-slate-600 mb-2">
+                            Benefits of creating an account:
+                        </p>
+                        <ul className="text-sm text-slate-600 list-disc pl-5 mb-4">
+                            <li>Update your personal information</li>
+                            <li>Manage your residential location</li>
+                            <li>Register family members</li>
+                            <li>Easier verification in the future</li>
+                        </ul>
+                    </div>
+
+                    <DialogFooter className="flex space-x-2 justify-between">
+                        <Button variant="outline" onClick={() => setShowMembershipPrompt(false)}>Not Now</Button>
+                        <Button
+                            onClick={handleCreateMemberAccount}
+                            className="bg-indigo-600 hover:bg-indigo-700"
+                        >
+                            Create Account
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Layout>
     );
 }

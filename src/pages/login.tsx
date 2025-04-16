@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
 import { RefreshCw } from 'lucide-react';
-import CameraCapture from '@/components/capture/CameraCapture';
+import { useAuthStore } from '@/store/auth-store';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -18,7 +18,9 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [rememberMe, setRememberMe] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const [showFaceLogin, setShowFaceLogin] = useState(false);
+
+    // Use auth store
+    const { setUser, setLoggedIn, checkAuthStatus } = useAuthStore();
 
     // Try to load saved email on component mount
     useEffect(() => {
@@ -63,6 +65,13 @@ export default function LoginPage() {
                     localStorage.removeItem('userEmail');
                 }
 
+                // Update auth store
+                setUser(data.user);
+                setLoggedIn(true);
+
+                // Run auth check to confirm the cookie is set properly
+                await checkAuthStatus();
+
                 toast.success('Login successful');
 
                 // Redirect to profile
@@ -73,41 +82,6 @@ export default function LoginPage() {
         } catch (error) {
             console.error('Login error:', error);
             toast.error('An error occurred during login');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Handle face login
-    const handleFaceCapture = async (imageSrc: string) => {
-        setIsLoading(true);
-
-        try {
-            const response = await fetch('/api/auth/validate-face', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ image: imageSrc }),
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                toast.success('Face recognized! Welcome back.');
-
-                // Redirect to profile
-                router.push('/profile');
-            } else if (response.status === 404 && data.needsRegistration) {
-                // Face found but not linked to account
-                toast.info('Face recognized but not linked to an account. Please register or use email login.');
-                setShowFaceLogin(false);
-            } else {
-                toast.error(data.message || 'Face not recognized');
-            }
-        } catch (error) {
-            console.error('Face login error:', error);
-            toast.error('An error occurred during face login');
         } finally {
             setIsLoading(false);
         }
@@ -131,103 +105,71 @@ export default function LoginPage() {
                             <CardTitle className="text-xl font-bold text-center">PNG PESS BOOK</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {!showFaceLogin ? (
-                                <form onSubmit={handleCredentialLogin} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="email">Username:</Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            placeholder="Email Address"
-                                            required
-                                            disabled={isLoading}
-                                        />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="password">Password:</Label>
-                                        <Input
-                                            id="password"
-                                            type="password"
-                                            value={password}
-                                            onChange={(e) => setPassword(e.target.value)}
-                                            placeholder="Password"
-                                            required
-                                            disabled={isLoading}
-                                        />
-                                    </div>
-
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <Checkbox
-                                                id="remember-me"
-                                                checked={rememberMe}
-                                                onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                                                disabled={isLoading}
-                                            />
-                                            <Label htmlFor="remember-me" className="ml-2 text-sm">
-                                                Remember me
-                                            </Label>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-sm text-indigo-600"
-                                            onClick={() => setShowFaceLogin(true)}
-                                        >
-                                            Use Face Login
-                                        </Button>
-                                    </div>
-
-                                    <Button
-                                        type="submit"
-                                        className="w-full bg-indigo-600 hover:bg-indigo-700"
+                            <form onSubmit={handleCredentialLogin} className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="email">Username:</Label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        placeholder="Email Address"
+                                        required
                                         disabled={isLoading}
-                                    >
-                                        {isLoading ? (
-                                            <>
-                                                <RefreshCw size={16} className="mr-2 animate-spin" />
-                                                Logging in...
-                                            </>
-                                        ) : (
-                                            'Login'
-                                        )}
-                                    </Button>
-
-                                    <div className="text-center mt-4">
-                                        <p className="text-sm text-slate-600">
-                                            I have not registered as a member and would like to register for the first time now.
-                                        </p>
-                                        <Link href="/register">
-                                            <div className="mt-2 bg-amber-500 text-white py-2 rounded-md text-center hover:bg-amber-800 transition-colors">
-                                                SIGN UP TODAY
-                                            </div>
-                                        </Link>
-                                    </div>
-                                </form>
-                            ) : (
-                                <div className="space-y-4">
-                                    <p className="text-center text-slate-600 mb-4">
-                                        Use your face to log in instantly. Simply look at the camera and we&#39;ll recognize you.
-                                    </p>
-
-                                    <CameraCapture
-                                        onCapture={(imageSrc) => handleFaceCapture(imageSrc)}
                                     />
-
-                                    <div className="flex justify-center mt-4">
-                                        <Button
-                                            variant="ghost"
-                                            onClick={() => setShowFaceLogin(false)}
-                                        >
-                                            Back to Email Login
-                                        </Button>
-                                    </div>
                                 </div>
-                            )}
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="password">Password:</Label>
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="Password"
+                                        required
+                                        disabled={isLoading}
+                                    />
+                                </div>
+
+                                <div className="flex items-center">
+                                    <Checkbox
+                                        id="remember-me"
+                                        checked={rememberMe}
+                                        onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                                        disabled={isLoading}
+                                    />
+                                    <Label htmlFor="remember-me" className="ml-2 text-sm">
+                                        Remember me
+                                    </Label>
+                                </div>
+
+                                <Button
+                                    type="submit"
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                                    disabled={isLoading}
+                                >
+                                    {isLoading ? (
+                                        <>
+                                            <RefreshCw size={16} className="mr-2 animate-spin" />
+                                            Logging in...
+                                        </>
+                                    ) : (
+                                        'Login'
+                                    )}
+                                </Button>
+
+                                <div className="text-center mt-4">
+                                    <p className="text-sm text-slate-600">
+                                        I have not registered as a member and would like to register for the first time now.
+                                    </p>
+                                    <Link href="/register">
+                                        <div className="mt-2 bg-amber-500 text-white py-2 rounded-md text-center hover:bg-amber-800 transition-colors">
+                                            SIGN UP TODAY
+                                        </div>
+                                    </Link>
+                                </div>
+                            </form>
                         </CardContent>
                     </Card>
                 </div>

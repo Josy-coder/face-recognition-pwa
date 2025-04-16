@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const cookie = serialize('auth_token', result.token!, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
+                sameSite: 'strict' as const,
                 maxAge: 7 * 24 * 60 * 60, // 7 days
                 path: '/',
             });

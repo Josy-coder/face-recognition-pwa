@@ -8,7 +8,6 @@ import { toast } from 'sonner';
 interface S3FolderBrowserProps {
     onSelectFolder: (folderPath: string) => void;
     initialPath?: string;
-    authHeader: string;
     allowCreateFolder?: boolean;
 }
 
@@ -23,7 +22,6 @@ interface FolderItem {
 const S3FolderBrowser = ({
                              onSelectFolder,
                              initialPath = '',
-                             authHeader,
                              allowCreateFolder = true
                          }: S3FolderBrowserProps) => {
     const [rootFolders, setRootFolders] = useState<FolderItem[]>([]);
@@ -57,11 +55,8 @@ const S3FolderBrowser = ({
     const fetchFolders = async (path: string) => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/s3/list-folders?prefix=${encodeURIComponent(path)}`, {
-                headers: {
-                    'Authorization': authHeader
-                }
-            });
+            // No Authorization header needed, middleware will handle it
+            const response = await fetch(`/api/s3/list-folders?prefix=${encodeURIComponent(path)}`);
 
             if (!response.ok) {
                 throw new Error('Failed to fetch folders');
@@ -168,8 +163,7 @@ const S3FolderBrowser = ({
             const response = await fetch('/api/s3/create-folder', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': authHeader
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ folderPath })
             });

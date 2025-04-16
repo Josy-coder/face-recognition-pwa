@@ -1,5 +1,3 @@
-// pages/api/collections/index.ts
-
 import { NextApiRequest, NextApiResponse } from 'next';
 import {
     CreateCollectionCommand,
@@ -8,24 +6,57 @@ import {
 } from '@aws-sdk/client-rekognition';
 import { getRekognitionClient } from '@/lib/aws-config';
 import { s3Service } from '@/services/s3-service';
-
-// Simple auth middleware
-const isAdmin = (req: NextApiRequest) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
-        return false;
-    }
-
-    // Decode the base64 credentials
-    const credentials = Buffer.from(authHeader.split(' ')[1], 'base64').toString('utf-8');
-    const [username, password] = credentials.split(':');
-
-    // Compare with environment variables
-    return username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD;
-};
+import { verifyToken } from '@/lib/auth';
+import { parseCookies } from 'nookies';
 
 // Collection to folder mapping - in a production app, store this in a database
 const COLLECTION_TO_FOLDER_MAP: Record<string, string> = {};
+
+// Authentication function that checks for bearer token or admin cookie
+const getAuthenticatedUser = (req: NextApiRequest) => {
+    // Get token from cookies or Authorization header
+    const cookies = parseCookies({ req });
+    let token = cookies.admin_token;
+
+    // If admin_token is not present, check for auth_token
+    if (!token) {
+        token = cookies.auth_token;
+    }
+
+    // Fallback to Authorization header if no cookie
+    if (!token) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7); // Remove 'Bearer ' prefix
+        }
+    }
+
+    // If no token found, return null
+    if (!token) {
+        return null;
+    }
+
+    // Verify the token
+    try {
+        const decoded = verifyToken(token);
+        if (!decoded) {
+            return null;
+        }
+
+        return {
+            userId: decoded.userId,
+            role: decoded.role
+        };
+    } catch (error) {
+        console.error('Error verifying token:', error);
+        return null;
+    }
+};
+
+// Check if the user is an admin
+const isAdmin = (user: { userId: string, role: string } | null) => {
+    return user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN');
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rekognition = getRekognitionClient();
@@ -74,8 +105,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
             // If this is an admin request, check authentication
             else {
-                // Admin authentication for admin operations
-                if (!isAdmin(req)) {
+                // JWT authentication
+                const user = getAuthenticatedUser(req);
+
+                // Check if user is admin
+                if (!isAdmin(user)) {
                     return res.status(401).json({ message: 'Unauthorized' });
                 }
 
@@ -113,8 +147,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
     }
 
-    // For all other methods, admin authentication is required
-    if (!isAdmin(req)) {
+    // For all other methods, JWT authentication is required
+    const user = getAuthenticatedUser(req);
+
+    // Check if user is admin
+    if (!isAdmin(user)) {
         return res.status(401).json({ message: 'Unauthorized' });
     }
 

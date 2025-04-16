@@ -1,14 +1,29 @@
+"use client";
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
-import { RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users } from 'lucide-react';
+import { RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users, Save, X } from 'lucide-react';
 import CameraCapture from '@/components/capture/CameraCapture';
 import ResidentialPathDisplay from '@/components/location/ResidentialPathDisplay';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import FolderSelector from '@/components/capture/FolderSelector';
+import { useAuthStore } from '@/store/auth-store';
+
+// Define edit flow states
+enum EditFlowState {
+    IDLE = 'idle',
+    LIVE_TEST = 'live_test',
+    VERIFY_FACE = 'verify_face',
+    EDIT = 'edit'
+}
 
 // Define the User type
 interface User {
@@ -48,56 +63,75 @@ export default function ProfilePage() {
     const [activeTab, setActiveTab] = useState('profile');
     const [registeredPeople, setRegisteredPeople] = useState<Person[]>([]);
     const [showCameraCapture, setShowCameraCapture] = useState(false);
+    const [editFlowState, setEditFlowState] = useState<EditFlowState>(EditFlowState.IDLE);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
+    const [isVerifyingFace, setIsVerifyingFace] = useState(false);
+
+    // Form state for editing profile
+    const [editedUser, setEditedUser] = useState<User | null>(null);
+    const [selectedLocation, setSelectedLocation] = useState<string>('');
+
+    // Get auth state from Zustand store
+    const { userData, isLoggedIn, isAdminLoggedIn, logout, setUser: setStoreUser } = useAuthStore();
 
     // Check authentication on mount
     useEffect(() => {
         const fetchUserProfile = async () => {
             try {
-                const token = localStorage.getItem('auth_token');
+                setIsLoading(true);
+                // Use auth store to get user data first
+                if (userData && (isLoggedIn || isAdminLoggedIn)) {
+                    // If we already have user data in store, use it
+                    setUser(userData as User);
+                    setEditedUser(userData as User);
 
-                if (!token) {
-                    // No token, redirect to login
-                    router.push('/login');
-                    return;
-                }
-
-                // Fetch user profile
-                const response = await fetch('/api/auth/profile', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
+                    if (userData.residentialPath) {
+                        setSelectedLocation(userData.residentialPath);
                     }
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    setUser(data.user);
 
                     // Also fetch registered people
-                    fetchRegisteredPeople(token);
+                    fetchRegisteredPeople();
                 } else {
-                    // Token invalid or expired
-                    localStorage.removeItem('auth_token');
-                    router.push('/login');
+                    // Otherwise fetch from API
+                    const response = await fetch('/api/auth/profile');
+
+                    if (response.ok) {
+                        const data = await response.json();
+
+                        // Update local state
+                        setUser(data.user);
+                        setEditedUser(data.user);
+
+                        // Also update auth store
+                        setStoreUser(data.user);
+
+                        if (data.user.residentialPath) {
+                            setSelectedLocation(data.user.residentialPath);
+                        }
+
+                        // Also fetch registered people
+                        fetchRegisteredPeople();
+                    } else {
+                        // Token invalid or expired
+                        router.push('/login');
+                    }
                 }
             } catch (error) {
                 console.error('Error fetching profile:', error);
                 toast.error('Failed to load profile');
+                router.push('/login');
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchUserProfile();
-    }, [router]);
+    }, [router, userData, isLoggedIn, isAdminLoggedIn, setStoreUser]);
 
     // Fetch people registered by the user
-    const fetchRegisteredPeople = async (token: string) => {
+    const fetchRegisteredPeople = async () => {
         try {
-            const response = await fetch('/api/people/registered-by-me', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            const response = await fetch('/api/people/registered-by-me');
 
             if (response.ok) {
                 const data = await response.json();
@@ -109,40 +143,93 @@ export default function ProfilePage() {
     };
 
     // Handle logout
-    const handleLogout = () => {
-        localStorage.removeItem('auth_token');
+    const handleLogout = async () => {
+        await logout();
         toast.success('Logged out successfully');
         router.push('/');
     };
 
-    // Handle face update
-    const handleUpdateFace = async (imageSrc: string) => {
+    // Start the edit profile flow
+    const startEditFlow = () => {
+        setEditFlowState(EditFlowState.LIVE_TEST);
+        toast.info('Please complete a live person test to edit your profile');
+    };
+
+    // Handle image capture for live test
+    const handleLiveTestCapture = (imageSrc: string) => {
+        setCapturedImage(imageSrc);
+        setEditFlowState(EditFlowState.VERIFY_FACE);
+    };
+
+    // Handle face verification
+    const handleVerifyFace = async () => {
+        if (!capturedImage) {
+            toast.error('No image captured');
+            return;
+        }
+
+        setIsVerifyingFace(true);
+
+        try {
+            // Verify the face matches the user
+            const response = await fetch('/api/auth/verify-user-face', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: capturedImage }),
+            });
+
+            if (response.ok) {
+                toast.success('Identity verified successfully');
+                setEditFlowState(EditFlowState.EDIT);
+            } else {
+                const data = await response.json();
+                toast.error(data.message || 'Face verification failed');
+                // Reset to idle state after failure
+                setEditFlowState(EditFlowState.IDLE);
+                setCapturedImage(null);
+            }
+        } catch (error) {
+            console.error('Error verifying face:', error);
+            toast.error('An error occurred during face verification');
+            setEditFlowState(EditFlowState.IDLE);
+        } finally {
+            setIsVerifyingFace(false);
+        }
+    };
+
+    // Update profile picture
+    const handleUpdateProfilePicture = async (imageSrc: string) => {
+        if (!user) return;
+
         setIsLoading(true);
 
         try {
-            const token = localStorage.getItem('auth_token');
-
-            if (!token) {
-                toast.error('Authentication required');
-                return;
-            }
-
             // Update face photo
             const response = await fetch('/api/auth/update-face', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ image: imageSrc })
+                body: JSON.stringify({ image: imageSrc }),
             });
 
             if (response.ok) {
+                const data = await response.json();
                 toast.success('Face photo updated successfully');
 
-                // Update user data
-                const data = await response.json();
+                // Update user data in local state
                 setUser(prev => prev ? {...prev, profileImageUrl: data.profileImageUrl} : null);
+                setEditedUser(prev => prev ? {...prev, profileImageUrl: data.profileImageUrl} : null);
+
+                // Also update the auth store with new profile image
+                if (userData) {
+                    setStoreUser({
+                        ...userData,
+                        profileImageUrl: data.profileImageUrl
+                    });
+                }
 
                 // Hide camera
                 setShowCameraCapture(false);
@@ -158,6 +245,80 @@ export default function ProfilePage() {
         }
     };
 
+    // Handle input changes in edit mode
+    const handleInputChange = (field: keyof User, value: string) => {
+        if (!editedUser) return;
+
+        setEditedUser({
+            ...editedUser,
+            [field]: value
+        });
+    };
+
+    // Save edited profile
+    const handleSaveProfile = async () => {
+        if (!editedUser) {
+            toast.error('No changes to save');
+            return;
+        }
+
+        setIsLoading(true);
+
+        try {
+            // Include the selected location in the update
+            const dataToUpdate = {
+                ...editedUser,
+                residentialPath: selectedLocation || editedUser.residentialPath
+            };
+
+            const response = await fetch('/api/auth/update-profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(dataToUpdate),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success('Profile updated successfully');
+
+                // Update user data in local state
+                setUser(data.user);
+
+                // Also update the auth store
+                setStoreUser(data.user);
+
+                // Reset edit state
+                setEditFlowState(EditFlowState.IDLE);
+                setCapturedImage(null);
+            } else {
+                const data = await response.json();
+                toast.error(data.message || 'Failed to update profile');
+            }
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            toast.error('An error occurred while updating profile');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Cancel edit mode
+    const cancelEdit = () => {
+        setEditFlowState(EditFlowState.IDLE);
+        setCapturedImage(null);
+
+        // Reset edited user to current user
+        if (user) {
+            setEditedUser(user);
+        }
+
+        if (user?.residentialPath) {
+            setSelectedLocation(user.residentialPath);
+        }
+    };
+
     // Get full name
     const getFullName = (person: User | Person) => {
         const parts = [
@@ -167,6 +328,288 @@ export default function ProfilePage() {
         ].filter(Boolean);
 
         return parts.length > 0 ? parts.join(' ') : 'No Name';
+    };
+
+    // Render content based on edit flow state
+    const renderEditFlowContent = () => {
+        switch (editFlowState) {
+            case EditFlowState.LIVE_TEST:
+                return (
+                    <Card className="mb-6">
+                        <CardHeader className="pb-3">
+                            <h3 className="text-lg font-medium">Live Person Test</h3>
+                            <p className="text-sm text-slate-500">
+                                For security, please take a live photo to verify your identity.
+                            </p>
+                        </CardHeader>
+                        <CardContent>
+                            <CameraCapture onCapture={handleLiveTestCapture} />
+                        </CardContent>
+                        <CardFooter className="flex justify-end space-x-2">
+                            <Button variant="outline" onClick={cancelEdit}>
+                                Cancel
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                );
+
+            case EditFlowState.VERIFY_FACE:
+                return (
+                    <Card className="mb-6">
+                        <CardHeader className="pb-3">
+                            <h3 className="text-lg font-medium">Verify Your Identity</h3>
+                            <p className="text-sm text-slate-500">
+                                Confirm this is you in the photo
+                            </p>
+                        </CardHeader>
+                        <CardContent className="text-center">
+                            {capturedImage && (
+                                <div className="mb-4">
+                                    <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100">
+                                        <img
+                                            src={capturedImage}
+                                            alt="Captured face"
+                                            className="w-full h-full object-cover"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                        <CardFooter className="flex justify-between">
+                            <Button variant="outline" onClick={cancelEdit}>
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleVerifyFace}
+                                disabled={isVerifyingFace}
+                                className="bg-indigo-600 hover:bg-indigo-700"
+                            >
+                                {isVerifyingFace ? (
+                                    <>
+                                        <RefreshCw size={16} className="mr-2 animate-spin" />
+                                        Verifying...
+                                    </>
+                                ) : (
+                                    'Verify Identity'
+                                )}
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                );
+
+            case EditFlowState.EDIT:
+                return editedUser ? (
+                    <div className="space-y-6">
+                        <Card className="border-none shadow-md overflow-hidden">
+                            <CardHeader className="bg-slate-50">
+                                <h3 className="text-lg font-medium">Edit Profile Information</h3>
+                            </CardHeader>
+                            <CardContent className="p-6">
+                                <div className="space-y-6">
+                                    {/* Profile photo update */}
+                                    <div className="flex justify-center">
+                                        <div className="relative">
+                                            <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100">
+                                                {editedUser.profileImageUrl ? (
+                                                    <img
+                                                        src={editedUser.profileImageUrl}
+                                                        alt={getFullName(editedUser)}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            // Fallback if image fails to load
+                                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <UserCircle className="w-full h-full text-slate-300" />
+                                                )}
+                                            </div>
+
+                                            <Button
+                                                size="sm"
+                                                className="absolute bottom-0 right-0 rounded-full w-8 h-8 p-0 bg-indigo-600 text-white"
+                                                onClick={() => setShowCameraCapture(prev => !prev)}
+                                            >
+                                                <Camera size={16} />
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    {/* Camera capture for updating photo */}
+                                    {showCameraCapture && (
+                                        <div className="mt-4">
+                                            <CameraCapture onCapture={handleUpdateProfilePicture} />
+
+                                            <div className="mt-2 flex justify-end">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setShowCameraCapture(false)}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Basic information form */}
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-firstName">First Name</Label>
+                                                <Input
+                                                    id="edit-firstName"
+                                                    value={editedUser.firstName || ''}
+                                                    onChange={(e) => handleInputChange('firstName', e.target.value)}
+                                                    placeholder="First Name"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-middleName">Middle Name</Label>
+                                                <Input
+                                                    id="edit-middleName"
+                                                    value={editedUser.middleName || ''}
+                                                    onChange={(e) => handleInputChange('middleName', e.target.value)}
+                                                    placeholder="Middle Name"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-lastName">Last Name</Label>
+                                                <Input
+                                                    id="edit-lastName"
+                                                    value={editedUser.lastName || ''}
+                                                    onChange={(e) => handleInputChange('lastName', e.target.value)}
+                                                    placeholder="Last Name"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-gender">Gender</Label>
+                                                <Select
+                                                    value={editedUser.gender || ''}
+                                                    onValueChange={(value) => handleInputChange('gender', value)}
+                                                >
+                                                    <SelectTrigger id="edit-gender">
+                                                        <SelectValue placeholder="Select Gender" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Male">Male</SelectItem>
+                                                        <SelectItem value="Female">Female</SelectItem>
+                                                        <SelectItem value="Other">Other</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-dateOfBirth">Date of Birth</Label>
+                                                <Input
+                                                    id="edit-dateOfBirth"
+                                                    type="date"
+                                                    value={editedUser.dateOfBirth?.substring(0, 10) || ''}
+                                                    onChange={(e) => handleInputChange('dateOfBirth', e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-occupation">Occupation</Label>
+                                                <Input
+                                                    id="edit-occupation"
+                                                    value={editedUser.occupation || ''}
+                                                    onChange={(e) => handleInputChange('occupation', e.target.value)}
+                                                    placeholder="Occupation"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-religion">Religion</Label>
+                                                <Select
+                                                    value={editedUser.religion || ''}
+                                                    onValueChange={(value) => handleInputChange('religion', value)}
+                                                >
+                                                    <SelectTrigger id="edit-religion">
+                                                        <SelectValue placeholder="Select Religion" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Christian">Christian</SelectItem>
+                                                        <SelectItem value="Islam">Islam</SelectItem>
+                                                        <SelectItem value="Other">Other</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="edit-denomination">Denomination</Label>
+                                                <Input
+                                                    id="edit-denomination"
+                                                    value={editedUser.denomination || ''}
+                                                    onChange={(e) => handleInputChange('denomination', e.target.value)}
+                                                    placeholder="Denomination"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="edit-clan">Clan</Label>
+                                            <Input
+                                                id="edit-clan"
+                                                value={editedUser.clan || ''}
+                                                onChange={(e) => handleInputChange('clan', e.target.value)}
+                                                placeholder="Clan"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Residential Location Selector */}
+                                    <div className="space-y-2">
+                                        <Label>Residential Location</Label>
+                                        <FolderSelector
+                                            onFolderSelect={(folders) => {
+                                                if (folders.length > 0) {
+                                                    setSelectedLocation(folders[0]);
+                                                }
+                                            }}
+                                            initialSelected={selectedLocation ? [selectedLocation] : []}
+                                            minLevel={2} // Require at least province and district
+                                        />
+                                    </div>
+                                </div>
+                            </CardContent>
+                            <CardFooter className="flex justify-between bg-slate-50 px-6 py-4">
+                                <Button variant="outline" onClick={cancelEdit}>
+                                    <X size={16} className="mr-2" />
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleSaveProfile}
+                                    disabled={isLoading}
+                                    className="bg-indigo-600 hover:bg-indigo-700"
+                                >
+                                    {isLoading ? (
+                                        <>
+                                            <RefreshCw size={16} className="mr-2 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save size={16} className="mr-2" />
+                                            Save Changes
+                                        </>
+                                    )}
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    </div>
+                ) : null;
+
+            default: // IDLE state
+                return null;
+        }
     };
 
     if (isLoading) {
@@ -198,203 +641,194 @@ export default function ProfilePage() {
                 <title>My Profile - PNG Pess Book</title>
                 <meta name="description" content="Your PNG Pess Book profile" />
             </Head>
-            <Layout title="Login User Profile Page" showHistory={false}>
+            <Layout title="User Profile Page" showHistory={false}>
                 <div className="max-w-4xl mx-auto">
-                    <div className="mb-6 flex flex-col md:flex-row items-center md:items-start gap-6">
-                        {/* Profile photo card */}
-                        <Card className="w-full md:w-1/3 border-none shadow-lg">
-                            <CardContent className="p-6 text-center">
-                                <div className="mb-6">
-                                    <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100 relative">
-                                        {user.profileImageUrl ? (
-                                            <img
-                                                src={user.profileImageUrl}
-                                                alt={getFullName(user)}
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => {
-                                                    // Fallback if image fails to load
-                                                    (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
-                                                }}
-                                            />
-                                        ) : (
-                                            <UserCircle className="w-full h-full text-slate-300" />
-                                        )}
+                    {/* Render Edit Flow Content if in edit mode */}
+                    {editFlowState !== EditFlowState.IDLE && renderEditFlowContent()}
 
-                                        <Button
-                                            size="sm"
-                                            className="absolute bottom-0 right-0 rounded-full w-8 h-8 p-0 bg-indigo-600 text-white"
-                                            onClick={() => setShowCameraCapture(true)}
-                                        >
-                                            <Camera size={16} />
-                                        </Button>
+                    {/* Only show normal profile view if not in edit mode */}
+                    {editFlowState === EditFlowState.IDLE && (
+                        <div className="mb-6 flex flex-col md:flex-row items-center md:items-start gap-6">
+                            {/* Profile photo card */}
+                            <Card className="w-full md:w-1/3 border-none shadow-lg">
+                                <CardContent className="p-6 text-center">
+                                    <div className="mb-6">
+                                        <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100 relative">
+                                            {user.profileImageUrl ? (
+                                                <img
+                                                    src={user.profileImageUrl}
+                                                    alt={getFullName(user)}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        // Fallback if image fails to load
+                                                        (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                    }}
+                                                />
+                                            ) : (
+                                                <UserCircle className="w-full h-full text-slate-300" />
+                                            )}
+                                        </div>
+                                        <h2 className="text-xl font-bold mt-4">{getFullName(user)}</h2>
+                                        <p className="text-sm text-slate-500">{user.email}</p>
                                     </div>
-                                    <h2 className="text-xl font-bold mt-4">{getFullName(user)}</h2>
-                                    <p className="text-sm text-slate-500">{user.email}</p>
-                                </div>
 
-                                <Button
-                                    variant="outline"
-                                    className="w-full flex items-center justify-center text-red-600 hover:bg-red-50 hover:text-red-700"
-                                    onClick={handleLogout}
-                                >
-                                    <LucideLogOut size={16} className="mr-2" />
-                                    Logout
-                                </Button>
-                            </CardContent>
-                        </Card>
+                                    <Button
+                                        variant="outline"
+                                        className="w-full flex items-center justify-center text-red-600 hover:bg-red-50 hover:text-red-700"
+                                        onClick={handleLogout}
+                                    >
+                                        <LucideLogOut size={16} className="mr-2" />
+                                        Logout
+                                    </Button>
+                                </CardContent>
+                            </Card>
 
-                        {/* Main content card */}
-                        <Card className="w-full md:w-2/3 border-none shadow-lg">
-                            <CardHeader className="px-6 pt-6 pb-2">
-                                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                    <TabsList className="grid w-full grid-cols-2">
-                                        <TabsTrigger value="profile" className="flex items-center gap-2">
-                                            <UserCircle size={16} />
-                                            <span>Profile</span>
-                                        </TabsTrigger>
-                                        <TabsTrigger value="people" className="flex items-center gap-2">
-                                            <Users size={16} />
-                                            <span>Registered People</span>
-                                        </TabsTrigger>
-                                    </TabsList>
-                                </Tabs>
-                            </CardHeader>
+                            {/* Main content card */}
+                            <Card className="w-full md:w-2/3 border-none shadow-lg">
+                                <CardHeader className="px-6 pt-6 pb-2">
+                                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                                        <TabsList className="grid w-full grid-cols-2">
+                                            <TabsTrigger value="profile" className="flex items-center gap-2">
+                                                <UserCircle size={16} />
+                                                <span>Profile</span>
+                                            </TabsTrigger>
+                                            <TabsTrigger value="people" className="flex items-center gap-2">
+                                                <Users size={16} />
+                                                <span>Registered People</span>
+                                            </TabsTrigger>
+                                        </TabsList>
+                                    </Tabs>
+                                </CardHeader>
 
-                            <CardContent className="px-6 py-4">
-                                <TabsContent value="profile" className="mt-2 space-y-4">
-                                    {showCameraCapture ? (
-                                        <div className="mb-4">
-                                            <h3 className="text-lg font-medium mb-2">Update Your Face Photo</h3>
-                                            <CameraCapture onCapture={handleUpdateFace} />
+                                <CardContent className="px-6 py-4">
+                                    <TabsContent value="profile" className="mt-2 space-y-4">
+                                        <div className="space-y-4">
+                                            <div>
+                                                <h3 className="text-lg font-medium mb-4">Personal Information</h3>
 
-                                            <div className="mt-4 flex justify-end">
+                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-500">First Name</p>
+                                                        <p>{user.firstName || 'Not provided'}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-500">Last Name</p>
+                                                        <p>{user.lastName || 'Not provided'}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-500">Gender</p>
+                                                        <p>{user.gender || 'Not provided'}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-500">Date of Birth</p>
+                                                        <p>{user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : 'Not provided'}</p>
+                                                    </div>
+                                                    {user.occupation && (
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Occupation</p>
+                                                            <p>{user.occupation}</p>
+                                                        </div>
+                                                    )}
+                                                    {user.religion && (
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Religion</p>
+                                                            <p>{user.religion}{user.denomination ? ` (${user.denomination})` : ''}</p>
+                                                        </div>
+                                                    )}
+                                                    {user.clan && (
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Clan</p>
+                                                            <p>{user.clan}</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {user.residentialPath && (
+                                                <ResidentialPathDisplay path={user.residentialPath} />
+                                            )}
+
+                                            <div className="pt-4 flex justify-end">
                                                 <Button
-                                                    variant="outline"
-                                                    onClick={() => setShowCameraCapture(false)}
+                                                    className="flex items-center bg-indigo-600 hover:bg-indigo-700"
+                                                    onClick={startEditFlow}
                                                 >
-                                                    Cancel
+                                                    <Edit size={16} className="mr-2" />
+                                                    Edit Profile
                                                 </Button>
                                             </div>
                                         </div>
-                                    ) : (
-                                        <>
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <h3 className="text-lg font-medium mb-4">Personal Information</h3>
+                                    </TabsContent>
 
-                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-500">First Name</p>
-                                                            <p>{user.firstName || 'Not provided'}</p>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-500">Last Name</p>
-                                                            <p>{user.lastName || 'Not provided'}</p>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-500">Gender</p>
-                                                            <p>{user.gender || 'Not provided'}</p>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-500">Date of Birth</p>
-                                                            <p>{user.dateOfBirth || 'Not provided'}</p>
-                                                        </div>
-                                                        {user.occupation && (
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-500">Occupation</p>
-                                                                <p>{user.occupation}</p>
-                                                            </div>
-                                                        )}
-                                                        {user.religion && (
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-500">Religion</p>
-                                                                <p>{user.religion}{user.denomination ? ` (${user.denomination})` : ''}</p>
-                                                            </div>
-                                                        )}
-                                                        {user.clan && (
-                                                            <div>
-                                                                <p className="text-sm font-medium text-slate-500">Clan</p>
-                                                                <p>{user.clan}</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                    <TabsContent value="people" className="mt-2">
+                                        <div className="mb-4 flex justify-between items-center">
+                                            <h3 className="text-lg font-medium">People You&#39;ve Registered</h3>
+                                            <Button
+                                                className="flex items-center bg-indigo-600 hover:bg-indigo-700"
+                                                onClick={() => router.push('/register-person')}
+                                            >
+                                                <Users size={16} className="mr-2" />
+                                                Register New Person
+                                            </Button>
+                                        </div>
 
-                                                {user.residentialPath && (
-                                                    <ResidentialPathDisplay path={user.residentialPath} />
-                                                )}
-
-                                                <div className="pt-4 flex justify-end">
-                                                    <Button className="flex items-center bg-indigo-600 hover:bg-indigo-700">
-                                                        <Edit size={16} className="mr-2" />
-                                                        Edit Profile
-                                                    </Button>
-                                                </div>
+                                        {registeredPeople.length === 0 ? (
+                                            <div className="text-center py-8 bg-slate-50 rounded-md">
+                                                <p className="text-slate-500">You haven&#39;t registered any people yet.</p>
                                             </div>
-                                        </>
-                                    )}
-                                </TabsContent>
+                                        ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {registeredPeople.map(person => (
+                                                    <Card key={person.id} className="overflow-hidden">
+                                                        <CardContent className="p-4">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100">
+                                                                    {person.s3ImagePath ? (
+                                                                        <img
+                                                                            src={person.s3ImagePath}
+                                                                            alt={getFullName(person)}
+                                                                            className="w-full h-full object-cover"
+                                                                            onError={(e) => {
+                                                                                // Fallback if image fails to load
+                                                                                (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                                            }}
+                                                                        />
+                                                                    ) : (
+                                                                        <UserCircle className="w-full h-full text-slate-300" />
+                                                                    )}
+                                                                </div>
 
-                                <TabsContent value="people" className="mt-2">
-                                    <div className="mb-4 flex justify-between items-center">
-                                        <h3 className="text-lg font-medium">People You've Registered</h3>
-                                        <Button className="flex items-center bg-indigo-600 hover:bg-indigo-700">
-                                            <Users size={16} className="mr-2" />
-                                            Register New Person
-                                        </Button>
-                                    </div>
+                                                                <div>
+                                                                    <h4 className="font-medium">{getFullName(person)}</h4>
+                                                                    <p className="text-sm text-slate-500">{person.gender || 'Not specified'}</p>
 
-                                    {registeredPeople.length === 0 ? (
-                                        <div className="text-center py-8 bg-slate-50 rounded-md">
-                                            <p className="text-slate-500">You haven't registered any people yet.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {registeredPeople.map(person => (
-                                                <Card key={person.id} className="overflow-hidden">
-                                                    <CardContent className="p-4">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100">
-                                                                {person.s3ImagePath ? (
-                                                                    <img
-                                                                        src={person.s3ImagePath}
-                                                                        alt={getFullName(person)}
-                                                                        className="w-full h-full object-cover"
-                                                                        onError={(e) => {
-                                                                            // Fallback if image fails to load
-                                                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
-                                                                        }}
-                                                                    />
-                                                                ) : (
-                                                                    <UserCircle className="w-full h-full text-slate-300" />
-                                                                )}
+                                                                    {person.residentialPath && (
+                                                                        <p className="text-xs text-slate-500 truncate max-w-xs">
+                                                                            {person.residentialPath}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
                                                             </div>
-
-                                                            <div>
-                                                                <h4 className="font-medium">{getFullName(person)}</h4>
-                                                                <p className="text-sm text-slate-500">{person.gender || 'Not specified'}</p>
-
-                                                                {person.residentialPath && (
-                                                                    <p className="text-xs text-slate-500 truncate max-w-xs">
-                                                                        {person.residentialPath}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </CardContent>
-                                                    <CardFooter className="bg-slate-50 p-2 flex justify-end">
-                                                        <Button size="sm" variant="ghost" className="text-indigo-600 hover:text-indigo-700">
-                                                            View Details
-                                                        </Button>
-                                                    </CardFooter>
-                                                </Card>
-                                            ))}
-                                        </div>
-                                    )}
-                                </TabsContent>
-                            </CardContent>
-                        </Card>
-                    </div>
+                                                        </CardContent>
+                                                        <CardFooter className="bg-slate-50 p-2 flex justify-end">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="text-indigo-600 hover:text-indigo-700"
+                                                                onClick={() => router.push(`/edit-person/${person.id}`)}
+                                                            >
+                                                                Edit Details
+                                                            </Button>
+                                                        </CardFooter>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </TabsContent>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
                 </div>
             </Layout>
         </>

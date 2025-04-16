@@ -104,6 +104,49 @@ class RekognitionService {
     }
 
     /**
+     * Compare a face image to a specific FaceId in a collection
+     */
+    async compareFaceToFaceId(
+        sourceImage: string,
+        faceId: string,
+        similarityThreshold = 70
+    ) {
+        try {
+            const response = await fetch('/api/compare-face-to-id', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    sourceImage,
+                    faceId,
+                    similarityThreshold,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Error comparing face to ID');
+            }
+
+            const result = await response.json();
+            return {
+                matched: result.matched || false,
+                similarity: result.similarity || 0,
+                faceId: result.faceId || null
+            };
+        } catch (error) {
+            console.error('Error comparing face to ID:', error);
+            toast.error('Failed to verify face');
+            return {
+                matched: false,
+                similarity: 0,
+                faceId: null
+            };
+        }
+    }
+
+    /**
      * Get all available collections (for admin use)
      */
     async getCollections(authHeader: string) {
@@ -156,6 +199,70 @@ class RekognitionService {
         } catch (error) {
             console.error('Error indexing face:', error);
             toast.error('Failed to index face');
+            return null;
+        }
+    }
+
+    /**
+     * Index face from image data
+     */
+    async indexFaceFromImage(
+        image: string,
+        collectionId: string,
+        externalImageId: string
+    ) {
+        try {
+            const response = await fetch('/api/collections/' + collectionId + '/faces', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    image,
+                    externalImageId
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Error indexing face');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error indexing face from image:', error);
+            toast.error('Failed to index face');
+            return null;
+        }
+    }
+
+    /**
+     * Delete faces from a collection
+     */
+    async deleteFaceFromCollection(
+        collectionId: string,
+        faceIds: string[]
+    ) {
+        try {
+            const response = await fetch(`/api/collections/${collectionId}/faces`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    faceIds
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Error deleting faces');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error deleting faces:', error);
+            toast.error('Failed to delete face');
             return null;
         }
     }

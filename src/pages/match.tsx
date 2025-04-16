@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
@@ -8,8 +10,8 @@ import Layout from '@/components/layout/layout';
 import CameraCapture from '@/components/capture/CameraCapture';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { RefreshCw } from 'lucide-react';
-import { CheckCircle } from 'lucide-react';
+import { RefreshCw, CheckCircle, Camera } from 'lucide-react';
+import FolderSelector from '@/components/capture/FolderSelector';
 
 export default function MatchPage() {
     const router = useRouter();
@@ -24,6 +26,10 @@ export default function MatchPage() {
         ABG: false,
         MKA: false
     });
+
+    // Location filters for specific area search
+    const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+    const [showLocationSelector, setShowLocationSelector] = useState(false);
 
     // Handle image capture
     const handleCapture = async (imageSrc: string) => {
@@ -43,8 +49,9 @@ export default function MatchPage() {
 
             if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
                 setIsFaceDetected(true);
-                // Move to next step
-                setStep('select-collection');
+                toast.success('Face detected! Click Continue when ready.');
+                // Don't automatically proceed to the next step
+                // Let the user decide when to move forward
             } else {
                 toast.error('No face detected in the image. Please try again.');
                 setIsFaceDetected(false);
@@ -86,6 +93,11 @@ export default function MatchPage() {
             .map(([collection, _]) => collection);
     };
 
+    // Handle folder selection for filtering
+    const handleFolderSelect = (folders: string[]) => {
+        setSelectedLocations(folders);
+    };
+
     // Perform the search
     const handleSearch = async () => {
         if (!capturedImage) {
@@ -107,6 +119,13 @@ export default function MatchPage() {
             localStorage.setItem('faceRecog_searchImage', capturedImage);
             localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(collections));
 
+            // Include location filters if selected
+            if (selectedLocations.length > 0) {
+                localStorage.setItem('faceRecog_locationFilters', JSON.stringify(selectedLocations));
+            } else {
+                localStorage.removeItem('faceRecog_locationFilters');
+            }
+
             // Navigate to search page which will process the search
             router.push('/search');
         } catch (error) {
@@ -116,6 +135,12 @@ export default function MatchPage() {
         }
     };
 
+    // Retake photo
+    const retakePhoto = () => {
+        setCapturedImage(null);
+        setIsFaceDetected(false);
+    };
+
     // Render content based on current step
     const renderContent = () => {
         switch (step) {
@@ -123,16 +148,56 @@ export default function MatchPage() {
                 return (
                     <Card className="border-none shadow-lg">
                         <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Take Selfie for Face Match</CardTitle>
+                            <CardTitle>Take a Photo</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
                             <div className="text-center mb-6">
                                 <p className="mb-4">
                                     Take a clear photo of yourself for matching against our database.
                                 </p>
+
+                                {capturedImage && (
+                                    <div className="mb-6">
+                                        <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100">
+                                            <img
+                                                src={capturedImage}
+                                                alt="Captured face"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+
+                                        <div className="flex justify-center space-x-2 mt-4">
+                                            <Button
+                                                variant="outline"
+                                                onClick={retakePhoto}
+                                                className="flex items-center"
+                                            >
+                                                <Camera size={16} className="mr-2" />
+                                                Retake Photo
+                                            </Button>
+
+                                            {isFaceDetected && (
+                                                <Button
+                                                    onClick={() => setStep('select-collection')}
+                                                    className="bg-indigo-600 hover:bg-indigo-700 flex items-center"
+                                                >
+                                                    <CheckCircle size={16} className="mr-2" />
+                                                    Continue
+                                                </Button>
+                                            )}
+                                        </div>
+
+                                        {isFaceDetected && (
+                                            <div className="mt-2 flex items-center justify-center text-sm text-green-600">
+                                                <CheckCircle size={16} className="mr-1" />
+                                                Face detected successfully!
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
-                            <CameraCapture onCapture={handleCapture} />
+                            {!capturedImage && <CameraCapture onCapture={handleCapture} />}
                         </CardContent>
                     </Card>
                 );
@@ -201,6 +266,26 @@ export default function MatchPage() {
                                 </div>
                             </div>
 
+                            <div className="mt-6 mb-6">
+                                <Button
+                                    variant={showLocationSelector ? "secondary" : "outline"}
+                                    onClick={() => setShowLocationSelector(!showLocationSelector)}
+                                    className="w-full"
+                                >
+                                    {showLocationSelector ? "Hide Location Filters" : "Add Location Filters (Optional)"}
+                                </Button>
+
+                                {showLocationSelector && (
+                                    <div className="mt-4">
+                                        <FolderSelector
+                                            onFolderSelect={handleFolderSelect}
+                                            initialSelected={selectedLocations}
+                                            minLevel={0} // Allow any level for filtering
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="flex justify-between mt-6">
                                 <Button
                                     variant="outline"
@@ -256,6 +341,21 @@ export default function MatchPage() {
                                         ))}
                                     </ul>
                                 </div>
+
+                                {selectedLocations.length > 0 && (
+                                    <div className="mt-4">
+                                        <p className="mb-2">Filtered by locations:</p>
+                                        <div className="bg-slate-50 p-3 rounded-md inline-block max-w-full">
+                                            <div className="text-left max-h-24 overflow-y-auto">
+                                                {selectedLocations.map(location => (
+                                                    <div key={location} className="text-xs mb-1 truncate">
+                                                        {location}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex justify-between mt-6">
@@ -293,13 +393,13 @@ export default function MatchPage() {
                 <title>Face Match - PNG Pess Book</title>
                 <meta name="description" content="Match a face in the PNG Pess Book system" />
             </Head>
-            <Layout title="Anonymous User Lookup Page" showHistory={false} showNewSearch={false}>
+            <Layout title="Face Matching" showHistory={false} showNewSearch={false}>
                 <div className="max-w-2xl mx-auto">
                     {/* Step indicators */}
                     <div className="flex justify-between items-center mb-6">
                         <div className="flex w-full justify-between items-center relative">
                             {[1, 2, 3, 4].map((stepNum) => {
-// Determine if step is active or completed
+                                // Determine if step is active or completed
                                 let isActive = false;
                                 let isCompleted = false;
 
@@ -324,12 +424,12 @@ export default function MatchPage() {
                                         }`}>
                                             {stepNum}
                                         </div>
-                                        <span className="text-xs hidden md:block whitespace-nowrap">
-                      {stepNum === 1 && "Take Photo"}
+                                        <span className="text-xs block whitespace-nowrap">
+                                            {stepNum === 1 && "Take Photo"}
                                             {stepNum === 2 && "Select Dataset"}
                                             {stepNum === 3 && "Confirm"}
                                             {stepNum === 4 && "View Results"}
-                    </span>
+                                        </span>
                                     </div>
                                 );
                             })}

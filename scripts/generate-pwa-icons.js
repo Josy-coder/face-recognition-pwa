@@ -1,7 +1,7 @@
 /**
  * This script generates PWA icons in various sizes.
  * You would normally use a real icon and a tool like sharp to generate
- * all the required sizes. This is just a simple example.
+ * all the required sizes.
  *
  * To use this script:
  * 1. Create a public/icons folder
@@ -11,7 +11,11 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import sharp from 'sharp';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Ensure the icons directory exists
 const iconsDir = path.join(__dirname, '../public/icons');
@@ -22,14 +26,13 @@ if (!fs.existsSync(iconsDir)) {
 // Define the sizes you need
 const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
 
-// Create a simple icon - this is very basic!
-// In a real app, you'd start with a high-quality icon file
+
 async function generateIcons() {
     // Create a basic SVG with text
     const svgBuffer = Buffer.from(`
     <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-      <rect width="512" height="512" fill="#4f46e5"/>
-      <text x="50%" y="50%" font-family="Arial" font-size="220" fill="white" text-anchor="middle" dominant-baseline="middle">F</text>
+      <rect width="512" height="512" rx="64" fill="#f59e0b"/>
+      <text x="50%" y="50%" font-family="Arial" font-size="220" fill="white" text-anchor="middle" dominant-baseline="middle" font-weight="bold">PNG</text>
     </svg>
   `);
 
@@ -50,7 +53,7 @@ async function generateIcons() {
     // Generate Safari pinned tab icon
     const safariSvg = Buffer.from(`
     <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-      <text x="50%" y="50%" font-family="Arial" font-size="400" fill="black" text-anchor="middle" dominant-baseline="middle">F</text>
+      <text x="50%" y="50%" font-family="Arial" font-size="400" fill="black" text-anchor="middle" dominant-baseline="middle" font-weight="bold">PNG</text>
     </svg>
   `);
 

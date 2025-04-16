@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import dynamic from 'next/dynamic';
-import { Search, User, LogIn, Home, Menu, X, ChevronDown } from 'lucide-react';
+import { Search, User, LogIn, Home, Menu, X, ChevronDown, ShieldAlert } from 'lucide-react';
+import { useAuthStore } from '@/store/auth-store';
 
 // Dynamically import the PWA prompt component with SSR disabled
 const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt'), {
@@ -24,17 +25,22 @@ export default function Layout({
                                }: LayoutProps) {
     const router = useRouter();
     const [mounted, setMounted] = useState(false);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    // Only show the PWA prompt after initial client-side render
+    // Use auth store instead of local state
+    const {
+        isLoggedIn,
+        isAdminLoggedIn,
+        userData,
+        checkAuthStatus,
+        logout
+    } = useAuthStore();
+
+    // Check auth status when component mounts or route changes
     useEffect(() => {
         setMounted(true);
-
-        // Check if user is logged in
-        const token = localStorage.getItem('auth_token');
-        setIsLoggedIn(!!token);
-    }, []);
+        checkAuthStatus();
+    }, [router.pathname, checkAuthStatus]);
 
     // Toggle mobile menu
     const toggleMobileMenu = () => {
@@ -46,6 +52,12 @@ export default function Layout({
         setIsMobileMenuOpen(false);
     }, [router.pathname]);
 
+    // Handle logout
+    const handleLogout = async () => {
+        await logout();
+        router.push('/');
+    };
+
     return (
         <div className="min-h-screen flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
             <header className="sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-sm">
@@ -56,7 +68,7 @@ export default function Layout({
                                 <div className="w-10 h-10 bg-amber-500 text-white flex items-center justify-center font-bold rounded-md">
                                     PNG
                                 </div>
-                                <span className="font-bold text-lg hidden sm:inline">PNG Pess Book</span>
+                                <span className="font-bold text-lg hidden sm:inline dark:text-white">PNG Pess Book</span>
                             </Link>
                         </div>
 
@@ -72,25 +84,41 @@ export default function Layout({
                                 <span>Face Match</span>
                             </Link>
 
-                            {isLoggedIn ? (
+                            {isAdminLoggedIn && (
+                                <Link href="/admin" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                    <ShieldAlert size={18} />
+                                    <span>Admin Panel</span>
+                                </Link>
+                            )}
+
+                            {/* Add direct profile link for all logged in users */}
+                            {(isLoggedIn || isAdminLoggedIn) && (
+                                <Link href="/profile" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                    <User size={18} />
+                                    <span>My Profile</span>
+                                </Link>
+                            )}
+
+                            {(isLoggedIn || isAdminLoggedIn) ? (
                                 <div className="relative group">
                                     <button className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
                                         <User size={18} />
-                                        <span>Account</span>
+                                        <span>
+                                            {userData?.firstName || (isAdminLoggedIn ? 'Admin' : 'Account')}
+                                        </span>
                                         <ChevronDown size={16} />
                                     </button>
 
                                     <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg overflow-hidden z-20 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
                                         <div className="py-1">
-                                            <Link href="/profile" className="block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700">
-                                                My Profile
-                                            </Link>
+                                            {isLoggedIn && !isAdminLoggedIn && (
+                                                <Link href="/profile" className="block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700">
+                                                    My Profile
+                                                </Link>
+                                            )}
                                             <button
                                                 className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                                onClick={() => {
-                                                    localStorage.removeItem('auth_token');
-                                                    router.push('/');
-                                                }}
+                                                onClick={handleLogout}
                                             >
                                                 Logout
                                             </button>
@@ -98,10 +126,12 @@ export default function Layout({
                                     </div>
                                 </div>
                             ) : (
-                                <Link href="/login" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                    <LogIn size={18} />
-                                    <span>Login</span>
-                                </Link>
+                                <div className="flex items-center space-x-3">
+                                    <Link href="/login" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                        <LogIn size={18} />
+                                        <span>Login</span>
+                                    </Link>
+                                </div>
                             )}
 
                             {showNewSearch && (
@@ -135,28 +165,35 @@ export default function Layout({
                                     <span>Face Match</span>
                                 </Link>
 
-                                {isLoggedIn ? (
+                                {isAdminLoggedIn && (
+                                    <Link href="/admin" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                        <ShieldAlert size={18} />
+                                        <span>Admin Panel</span>
+                                    </Link>
+                                )}
+
+                                {(isLoggedIn || isAdminLoggedIn) ? (
                                     <>
+                                        {/* Always show profile link regardless of user type */}
                                         <Link href="/profile" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
                                             <User size={18} />
                                             <span>My Profile</span>
                                         </Link>
                                         <button
                                             className="flex items-center gap-2 py-2 text-red-600"
-                                            onClick={() => {
-                                                localStorage.removeItem('auth_token');
-                                                router.push('/');
-                                            }}
+                                            onClick={handleLogout}
                                         >
                                             <LogIn size={18} />
                                             <span>Logout</span>
                                         </button>
                                     </>
                                 ) : (
-                                    <Link href="/login" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
-                                        <LogIn size={18} />
-                                        <span>Login</span>
-                                    </Link>
+                                    <>
+                                        <Link href="/login" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                            <LogIn size={18} />
+                                            <span>Login</span>
+                                        </Link>
+                                    </>
                                 )}
 
                                 {showNewSearch && (

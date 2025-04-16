@@ -15,6 +15,7 @@ import {
     groupFacesByFolder,
     convertS3PathToExternalId
 } from '@/utils/path-conversion';
+import { useRouter } from 'next/router';
 
 interface Collection {
     id: string;
@@ -41,9 +42,7 @@ interface FolderFaces {
 }
 
 const AdminPanel = () => {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+    const router = useRouter();
     const [collections, setCollections] = useState<Collection[]>([]);
     const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
     const [selectedFolderPath, setSelectedFolderPath] = useState<string>('');
@@ -60,36 +59,43 @@ const AdminPanel = () => {
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
     const [, setCurrentImagePaths] = useState<string[]>([]);
     const [, setFolderImageCounts] = useState<Record<string, number>>({});
+    const [isAdmin, setIsAdmin] = useState(false);
 
-    // Base64 encode credentials for Basic Auth
-    const getAuthHeader = () => {
-        return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    };
+    // Check authentication status on component mount
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                setLoading(true);
+                const response = await fetch('/api/auth/admin/check');
 
-    const handleLogin = () => {
-        if (!username || !password) {
-            toast.error('Username and password are required');
-            return;
-        }
+                if (!response.ok) {
+                    // Redirect to login if not authenticated
+                    router.push('/admin/login');
+                } else {
+                    setIsAdmin(true);
+                    fetchCollections();
+                }
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                router.push('/admin/login');
+            } finally {
+                setLoading(false);
+            }
+        };
 
-        // We'll set authenticated state and try to list collections
-        setIsAuthenticated(true);
-        fetchCollections();
-    };
+        checkAuth();
+    }, [router]);
 
     const fetchCollections = async () => {
         setLoading(true);
         try {
-            const response = await fetch('/api/collections', {
-                headers: {
-                    'Authorization': getAuthHeader(),
-                },
-            });
+            // No need to pass Authorization header, middleware will do it
+            const response = await fetch('/api/collections');
 
             if (!response.ok) {
                 if (response.status === 401) {
-                    setIsAuthenticated(false);
-                    toast.error('Authentication failed');
+                    // Redirect to login if authentication fails
+                    router.push('/admin/login');
                     return;
                 }
                 throw new Error('Failed to fetch collections');
@@ -97,9 +103,6 @@ const AdminPanel = () => {
 
             const data = await response.json();
             setCollections(data.collections || []);
-
-            // Don't automatically select the first collection
-            // This is a UI improvement requested by the user
         } catch (error) {
             console.error('Error fetching collections:', error);
             toast.error('Failed to fetch collections');
@@ -121,7 +124,6 @@ const AdminPanel = () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': getAuthHeader(),
                 },
                 body: JSON.stringify({
                     collectionId: newCollectionId,
@@ -159,9 +161,6 @@ const AdminPanel = () => {
         try {
             const response = await fetch(`/api/collections?collectionId=${collectionId}`, {
                 method: 'DELETE',
-                headers: {
-                    'Authorization': getAuthHeader(),
-                },
             });
 
             setProgress(50);
@@ -192,11 +191,7 @@ const AdminPanel = () => {
         setLoading(true);
         setProgress(10);
         try {
-            const response = await fetch(`/api/collections/${collectionId}/faces`, {
-                headers: {
-                    'Authorization': getAuthHeader(),
-                },
-            });
+            const response = await fetch(`/api/collections/${collectionId}/faces`);
 
             setProgress(50);
 
@@ -249,11 +244,7 @@ const AdminPanel = () => {
 
     const fetchFolderImageCounts = async (folderPath: string) => {
         try {
-            const response = await fetch(`/api/s3/folder-stats?prefix=${encodeURIComponent(folderPath)}`, {
-                headers: {
-                    'Authorization': getAuthHeader(),
-                },
-            });
+            const response = await fetch(`/api/s3/folder-stats?prefix=${encodeURIComponent(folderPath)}`);
 
             if (!response.ok) {
                 throw new Error('Failed to fetch folder statistics');
@@ -310,7 +301,6 @@ const AdminPanel = () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': getAuthHeader(),
                 },
                 body: JSON.stringify({
                     image: captureImage,
@@ -390,7 +380,6 @@ const AdminPanel = () => {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': getAuthHeader(),
                         },
                         body: JSON.stringify({
                             image: base64,
@@ -460,7 +449,6 @@ const AdminPanel = () => {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': getAuthHeader(),
                 },
                 body: JSON.stringify({
                     faceIds: [faceId],
@@ -518,12 +506,12 @@ const AdminPanel = () => {
         setUploadedFiles(prev => prev.filter((_, i) => i !== index));
     };
 
-// Navigate to a specific folder in the folder hierarchy
+    // Navigate to a specific folder in the folder hierarchy
     const navigateToFolder = (folderPath: string) => {
         setCurrentFolderPath(folderPath);
     };
 
-// Update selected collection and fetch faces when changed
+    // Update selected collection and fetch faces when changed
     useEffect(() => {
         if (selectedCollection) {
             fetchFaces(selectedCollection);
@@ -703,50 +691,14 @@ const AdminPanel = () => {
             </div>
         );
     };
-    if (!isAuthenticated) {
+
+    // Show loading state while checking auth
+    if (!isAdmin) {
         return (
-            <Card className="w-full max-w-md mx-auto">
-                <CardHeader>
-                    <CardTitle className="text-center">AWS Rekognition Admin</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label htmlFor="username" className="text-sm font-medium">Username</label>
-                            <Input
-                                id="username"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                placeholder="Admin username"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label htmlFor="password" className="text-sm font-medium">Password</label>
-                            <Input
-                                id="password"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Admin password"
-                            />
-                        </div>
-                        <Button
-                            onClick={handleLogin}
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <div className="flex items-center">
-                                    <RefreshCw size={16} className="mr-2 animate-spin" />
-                                    Loading...
-                                </div>
-                            ) : (
-                                'Login'
-                            )}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <RefreshCw size={24} className="animate-spin text-primary mr-2" />
+                <span>Loading admin panel...</span>
+            </div>
         );
     }
 
@@ -758,7 +710,7 @@ const AdminPanel = () => {
                 </div>
             )}
 
-            <Card>
+            <Card className="shadow-none border-none">
                 <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>AWS Rekognition Admin Panel</CardTitle>
                     <Button
@@ -797,7 +749,6 @@ const AdminPanel = () => {
                                     <S3FolderBrowser
                                         onSelectFolder={handleFolderSelect}
                                         initialPath={selectedFolderPath}
-                                        authHeader={getAuthHeader()}
                                     />
 
                                     <Button
