@@ -79,9 +79,18 @@ export default function ProfilePage() {
         const fetchUserProfile = async () => {
             try {
                 setIsLoading(true);
+
+                // Debug auth state
+                console.log("Auth from store:", {
+                    userData,
+                    isLoggedIn,
+                    isAdminLoggedIn
+                });
+
                 // Use auth store to get user data first
                 if (userData && (isLoggedIn || isAdminLoggedIn)) {
                     // If we already have user data in store, use it
+                    console.log("Using data from store:", userData);
                     setUser(userData as User);
                     setEditedUser(userData as User);
 
@@ -89,44 +98,63 @@ export default function ProfilePage() {
                         setSelectedLocation(userData.residentialPath);
                     }
 
-                    // Also fetch registered people
-                    fetchRegisteredPeople();
+                    // Only fetch registered people for regular users, not admins
+                    if (isLoggedIn && !isAdminLoggedIn) {
+                        fetchRegisteredPeople();
+                    }
                 } else {
                     // Otherwise fetch from API
-                    const response = await fetch('/api/auth/profile');
+                    console.log("About to fetch from API");
+                    try {
+                        const response = await fetch('/api/auth/profile');
+                        console.log("API response status:", response.status);
 
-                    if (response.ok) {
-                        const data = await response.json();
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log("API returned user data:", data);
 
-                        // Update local state
-                        setUser(data.user);
-                        setEditedUser(data.user);
+                            // Update local state
+                            setUser(data.user);
+                            setEditedUser(data.user);
 
-                        // Also update auth store
-                        setStoreUser(data.user);
+                            // Also update auth store
+                            setStoreUser(data.user);
 
-                        if (data.user.residentialPath) {
-                            setSelectedLocation(data.user.residentialPath);
+                            if (data.user.residentialPath) {
+                                setSelectedLocation(data.user.residentialPath);
+                            }
+
+                            // Only fetch registered people for regular users, not admins
+                            if (!data.isAdmin) {
+                                fetchRegisteredPeople();
+                            }
+                        } else {
+                            console.log("Response not OK:", await response.text());
+                            setTimeout(() => {
+                                router.push('/login');
+                            }, 500);
                         }
-
-                        // Also fetch registered people
-                        fetchRegisteredPeople();
-                    } else {
-                        // Token invalid or expired
-                        router.push('/login');
+                    } catch (fetchError) {
+                        console.error("Fetch specific error:", fetchError);
+                        setTimeout(() => {
+                            router.push('/login');
+                        }, 500);
                     }
                 }
             } catch (error) {
                 console.error('Error fetching profile:', error);
                 toast.error('Failed to load profile');
-                router.push('/login');
+
+                setTimeout(() => {
+                    router.push('/login');
+                }, 500);
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchUserProfile();
-    }, [router, userData, isLoggedIn, isAdminLoggedIn, setStoreUser]);
+    }, [router, setStoreUser]);
 
     // Fetch people registered by the user
     const fetchRegisteredPeople = async () => {
@@ -346,7 +374,7 @@ export default function ProfilePage() {
                             <CameraCapture onCapture={handleLiveTestCapture} />
                         </CardContent>
                         <CardFooter className="flex justify-end space-x-2">
-                            <Button variant="outline" onClick={cancelEdit}>
+                            <Button variant="ghost" className="border border-gray" onClick={cancelEdit}>
                                 Cancel
                             </Button>
                         </CardFooter>
@@ -400,7 +428,7 @@ export default function ProfilePage() {
             case EditFlowState.EDIT:
                 return editedUser ? (
                     <div className="space-y-6">
-                        <Card className="border-none shadow-md overflow-hidden">
+                        <Card className="border-none overflow-hidden">
                             <CardHeader className="bg-slate-50">
                                 <h3 className="text-lg font-medium">Edit Profile Information</h3>
                             </CardHeader>
@@ -650,7 +678,7 @@ export default function ProfilePage() {
                     {editFlowState === EditFlowState.IDLE && (
                         <div className="mb-6 flex flex-col md:flex-row items-center md:items-start gap-6">
                             {/* Profile photo card */}
-                            <Card className="w-full md:w-1/3 border-none shadow-lg">
+                            <Card className="w-full md:w-1/3 border-none ">
                                 <CardContent className="p-6 text-center">
                                     <div className="mb-6">
                                         <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100 relative">
@@ -673,8 +701,8 @@ export default function ProfilePage() {
                                     </div>
 
                                     <Button
-                                        variant="outline"
-                                        className="w-full flex items-center justify-center text-red-600 hover:bg-red-50 hover:text-red-700"
+                                        variant="destructive"
+                                        className="w-full flex items-center justify-center text-white"
                                         onClick={handleLogout}
                                     >
                                         <LucideLogOut size={16} className="mr-2" />
@@ -684,10 +712,14 @@ export default function ProfilePage() {
                             </Card>
 
                             {/* Main content card */}
-                            <Card className="w-full md:w-2/3 border-none shadow-lg">
+                            <Card className="w-full md:w-2/3 border-none">
                                 <CardHeader className="px-6 pt-6 pb-2">
+                                    <h3 className="text-lg font-medium">Account Information</h3>
+                                </CardHeader>
+
+                                <CardContent className="px-6 py-4">
                                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                        <TabsList className="grid w-full grid-cols-2">
+                                        <TabsList className="grid w-full grid-cols-2 mb-4">
                                             <TabsTrigger value="profile" className="flex items-center gap-2">
                                                 <UserCircle size={16} />
                                                 <span>Profile</span>
@@ -697,134 +729,132 @@ export default function ProfilePage() {
                                                 <span>Registered People</span>
                                             </TabsTrigger>
                                         </TabsList>
-                                    </Tabs>
-                                </CardHeader>
 
-                                <CardContent className="px-6 py-4">
-                                    <TabsContent value="profile" className="mt-2 space-y-4">
-                                        <div className="space-y-4">
-                                            <div>
-                                                <h3 className="text-lg font-medium mb-4">Personal Information</h3>
+                                        <TabsContent value="profile" className="mt-2 space-y-4">
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <h3 className="text-lg font-medium mb-4">Personal Information</h3>
 
-                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-500">First Name</p>
-                                                        <p>{user.firstName || 'Not provided'}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-500">Last Name</p>
-                                                        <p>{user.lastName || 'Not provided'}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-500">Gender</p>
-                                                        <p>{user.gender || 'Not provided'}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-500">Date of Birth</p>
-                                                        <p>{user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : 'Not provided'}</p>
-                                                    </div>
-                                                    {user.occupation && (
+                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                                         <div>
-                                                            <p className="text-sm font-medium text-slate-500">Occupation</p>
-                                                            <p>{user.occupation}</p>
+                                                            <p className="text-sm font-medium text-slate-500">First Name</p>
+                                                            <p>{user.firstName || 'Not provided'}</p>
                                                         </div>
-                                                    )}
-                                                    {user.religion && (
                                                         <div>
-                                                            <p className="text-sm font-medium text-slate-500">Religion</p>
-                                                            <p>{user.religion}{user.denomination ? ` (${user.denomination})` : ''}</p>
+                                                            <p className="text-sm font-medium text-slate-500">Last Name</p>
+                                                            <p>{user.lastName || 'Not provided'}</p>
                                                         </div>
-                                                    )}
-                                                    {user.clan && (
                                                         <div>
-                                                            <p className="text-sm font-medium text-slate-500">Clan</p>
-                                                            <p>{user.clan}</p>
+                                                            <p className="text-sm font-medium text-slate-500">Gender</p>
+                                                            <p>{user.gender || 'Not provided'}</p>
                                                         </div>
-                                                    )}
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Date of Birth</p>
+                                                            <p>{user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : 'Not provided'}</p>
+                                                        </div>
+                                                        {user.occupation && (
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-500">Occupation</p>
+                                                                <p>{user.occupation}</p>
+                                                            </div>
+                                                        )}
+                                                        {user.religion && (
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-500">Religion</p>
+                                                                <p>{user.religion}{user.denomination ? ` (${user.denomination})` : ''}</p>
+                                                            </div>
+                                                        )}
+                                                        {user.clan && (
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-500">Clan</p>
+                                                                <p>{user.clan}</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {user.residentialPath && (
+                                                    <ResidentialPathDisplay path={user.residentialPath} />
+                                                )}
+
+                                                <div className="pt-4 flex justify-end">
+                                                    <Button
+                                                        className="flex items-center bg-indigo-600 hover:bg-indigo-700"
+                                                        onClick={startEditFlow}
+                                                    >
+                                                        <Edit size={16} className="mr-2" />
+                                                        Edit Profile
+                                                    </Button>
                                                 </div>
                                             </div>
+                                        </TabsContent>
 
-                                            {user.residentialPath && (
-                                                <ResidentialPathDisplay path={user.residentialPath} />
-                                            )}
-
-                                            <div className="pt-4 flex justify-end">
+                                        <TabsContent value="people" className="mt-2">
+                                            <div className="mb-4 flex justify-between items-center">
+                                                <h3 className="text-lg font-medium">People You&#39;ve Registered</h3>
                                                 <Button
                                                     className="flex items-center bg-indigo-600 hover:bg-indigo-700"
-                                                    onClick={startEditFlow}
+                                                    onClick={() => router.push('/register-person')}
                                                 >
-                                                    <Edit size={16} className="mr-2" />
-                                                    Edit Profile
+                                                    <Users size={16} className="mr-2" />
+                                                    Register New Person
                                                 </Button>
                                             </div>
-                                        </div>
-                                    </TabsContent>
 
-                                    <TabsContent value="people" className="mt-2">
-                                        <div className="mb-4 flex justify-between items-center">
-                                            <h3 className="text-lg font-medium">People You&#39;ve Registered</h3>
-                                            <Button
-                                                className="flex items-center bg-indigo-600 hover:bg-indigo-700"
-                                                onClick={() => router.push('/register-person')}
-                                            >
-                                                <Users size={16} className="mr-2" />
-                                                Register New Person
-                                            </Button>
-                                        </div>
+                                            {registeredPeople.length === 0 ? (
+                                                <div className="text-center py-8 bg-slate-50 rounded-md">
+                                                    <p className="text-slate-500">You haven&#39;t registered any people yet.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    {registeredPeople.map(person => (
+                                                        <Card key={person.id} className="overflow-hidden">
+                                                            <CardContent className="p-4">
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100">
+                                                                        {person.s3ImagePath ? (
+                                                                            <img
+                                                                                src={person.s3ImagePath}
+                                                                                alt={getFullName(person)}
+                                                                                className="w-full h-full object-cover"
+                                                                                onError={(e) => {
+                                                                                    // Fallback if image fails to load
+                                                                                    (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                                                                }}
+                                                                            />
+                                                                        ) : (
+                                                                            <UserCircle className="w-full h-full text-slate-300" />
+                                                                        )}
+                                                                    </div>
 
-                                        {registeredPeople.length === 0 ? (
-                                            <div className="text-center py-8 bg-slate-50 rounded-md">
-                                                <p className="text-slate-500">You haven&#39;t registered any people yet.</p>
-                                            </div>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                {registeredPeople.map(person => (
-                                                    <Card key={person.id} className="overflow-hidden">
-                                                        <CardContent className="p-4">
-                                                            <div className="flex items-center gap-4">
-                                                                <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100">
-                                                                    {person.s3ImagePath ? (
-                                                                        <img
-                                                                            src={person.s3ImagePath}
-                                                                            alt={getFullName(person)}
-                                                                            className="w-full h-full object-cover"
-                                                                            onError={(e) => {
-                                                                                // Fallback if image fails to load
-                                                                                (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
-                                                                            }}
-                                                                        />
-                                                                    ) : (
-                                                                        <UserCircle className="w-full h-full text-slate-300" />
-                                                                    )}
+                                                                    <div>
+                                                                        <h4 className="font-medium">{getFullName(person)}</h4>
+                                                                        <p className="text-sm text-slate-500">{person.gender || 'Not specified'}</p>
+
+                                                                        {person.residentialPath && (
+                                                                            <p className="text-xs text-slate-500 truncate max-w-xs">
+                                                                                {person.residentialPath}
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
-
-                                                                <div>
-                                                                    <h4 className="font-medium">{getFullName(person)}</h4>
-                                                                    <p className="text-sm text-slate-500">{person.gender || 'Not specified'}</p>
-
-                                                                    {person.residentialPath && (
-                                                                        <p className="text-xs text-slate-500 truncate max-w-xs">
-                                                                            {person.residentialPath}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </CardContent>
-                                                        <CardFooter className="bg-slate-50 p-2 flex justify-end">
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                className="text-indigo-600 hover:text-indigo-700"
-                                                                onClick={() => router.push(`/edit-person/${person.id}`)}
-                                                            >
-                                                                Edit Details
-                                                            </Button>
-                                                        </CardFooter>
-                                                    </Card>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </TabsContent>
+                                                            </CardContent>
+                                                            <CardFooter className="bg-slate-50 p-2 flex justify-end">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="text-indigo-600 hover:text-indigo-700"
+                                                                    onClick={() => router.push(`/edit-person/${person.id}`)}
+                                                                >
+                                                                    Edit Details
+                                                                </Button>
+                                                            </CardFooter>
+                                                        </Card>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </TabsContent>
+                                    </Tabs>
                                 </CardContent>
                             </Card>
                         </div>

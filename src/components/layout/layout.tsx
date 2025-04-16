@@ -27,7 +27,6 @@ export default function Layout({
     const [mounted, setMounted] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    // Use auth store instead of local state
     const {
         isLoggedIn,
         isAdminLoggedIn,

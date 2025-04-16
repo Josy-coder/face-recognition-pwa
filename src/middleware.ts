@@ -37,9 +37,11 @@ export async function middleware(req: NextRequest) {
 
     // For user authentication on regular pages
     if (path.startsWith('/profile') || path.startsWith('/api/auth/profile')) {
-        const token = req.cookies.get('auth_token')?.value;
+        const userToken = req.cookies.get('auth_token')?.value;
+        const adminToken = req.cookies.get('admin_token')?.value;
 
-        if (!token && !path.startsWith('/api/')) {
+        // Check for either token type - allow profile access with either
+        if (!userToken && !adminToken && !path.startsWith('/api/')) {
             const url = new URL('/login', req.url);
             return NextResponse.redirect(url);
         }
@@ -47,8 +49,12 @@ export async function middleware(req: NextRequest) {
         if (path.startsWith('/api/')) {
             // Add auth header for API routes
             const requestHeaders = new Headers(req.headers);
-            if (token) {
-                requestHeaders.set('Authorization', `Bearer ${token}`);
+
+            // Pass whichever token is available (prefer user token for profile endpoints)
+            if (userToken) {
+                requestHeaders.set('Authorization', `Bearer ${userToken}`);
+            } else if (adminToken) {
+                requestHeaders.set('Authorization', `Bearer ${adminToken}`);
             }
 
             return NextResponse.next({
