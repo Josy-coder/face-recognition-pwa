@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Button } from '@/components/ui/button';
@@ -7,37 +7,39 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
-import { Checkbox } from '@/components/ui/checkbox';
+import { useAuthStore } from '@/store/auth-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
-import LivenessDetection from '@/components/capture/LivenessDetection';
 import FolderSelector from '@/components/capture/FolderSelector';
-import { RefreshCw, CheckCircle } from 'lucide-react';
+import { RefreshCw, Camera, Upload, CheckCircle, X } from 'lucide-react';
+import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 // Registration steps
 enum RegistrationStep {
-    TAKE_SELFIE = 0,
-    LIVE_DETECTION = 1,
-    PERSONAL_INFO = 2,
-    EMAIL_CONFIRMATION = 3
+    SELECT_ALBUM = 0,
+    CAPTURE_PHOTO = 1,
+    PERSON_INFO = 2,
+    CONFIRMATION = 3
 }
 
-export default function AccountRegistrationPage() {
-    const router = useRouter();
-    const [currentStep, setCurrentStep] = useState<RegistrationStep>(RegistrationStep.TAKE_SELFIE);
-    const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [showAgreementDialog, setShowAgreementDialog] = useState(false);
-    const [agreedToTerms, setAgreedToTerms] = useState(false);
-    const [faceId] = useState<string | null>(null);
-    const [, setLivenessVerified] = useState(false);
+// Album structure
+interface Album {
+    id: string;
+    name: string;
+}
 
-    // Form data
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
+export default function FaceRegistrationPage() {
+    const router = useRouter();
+    const [currentStep, setCurrentStep] = useState<RegistrationStep>(RegistrationStep.SELECT_ALBUM);
+    const [isLoading, setIsLoading] = useState(true);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
+    const [albums, setAlbums] = useState<Album[]>([]);
+    const [showCreateAlbumDialog, setShowCreateAlbumDialog] = useState(false);
+    const [newAlbumName, setNewAlbumName] = useState('');
+    const [selectedAlbumId, setSelectedAlbumId] = useState<string>('');
+    const [uploadMode, setUploadMode] = useState(false);
+
+    // Person data
     const [firstName, setFirstName] = useState('');
     const [middleName, setMiddleName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -49,12 +51,86 @@ export default function AccountRegistrationPage() {
     const [clan, setClan] = useState('');
     const [residentialPath, setResidentialPath] = useState('');
 
-    // Handle simple selfie capture
-    const handleSelfieCapture = async (imageSrc: string) => {
-        setCapturedImage(imageSrc);
+    // Get auth state from Zustand store
+    const { isLoggedIn } = useAuthStore();
 
-        // Check if face is detected
+    // Check if user is logged in
+    useEffect(() => {
+        if (!isLoggedIn) {
+            toast.error('Please log in to register people');
+            router.push('/login');
+            return;
+        }
+
+        // Fetch user's albums
+        fetchAlbums();
+    }, [isLoggedIn, router]);
+
+    // Fetch user's albums
+    const fetchAlbums = async () => {
         try {
+            setIsLoading(true);
+            const response = await fetch('/api/albums/list');
+
+            if (response.ok) {
+                const data = await response.json();
+                setAlbums(data.albums);
+
+                // If user has albums, select the first one by default
+                if (data.albums.length > 0) {
+                    setSelectedAlbumId(data.albums[0].id);
+                }
+            } else {
+                toast.error('Failed to fetch albums');
+            }
+        } catch (error) {
+            console.error('Error fetching albums:', error);
+            toast.error('An error occurred while fetching albums');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Create a new album
+    const handleCreateAlbum = async () => {
+        if (!newAlbumName.trim()) {
+            toast.error('Please enter an album name');
+            return;
+        }
+
+        try {
+            setIsLoading(true);
+            const response = await fetch('/api/albums/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: newAlbumName.trim() }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success('Album created successfully');
+                setAlbums([...albums, data.album]);
+                setSelectedAlbumId(data.album.id);
+                setShowCreateAlbumDialog(false);
+                setNewAlbumName('');
+            } else {
+                const data = await response.json();
+                toast.error(data.message || 'Failed to create album');
+            }
+        } catch (error) {
+            console.error('Error creating album:', error);
+            toast.error('An error occurred while creating the album');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Handle image capture
+    const handleCapture = async (imageSrc: string) => {
+        try {
+            // Check if face is detected
             const response = await fetch('/api/face-detection', {
                 method: 'POST',
                 headers: {
@@ -66,8 +142,8 @@ export default function AccountRegistrationPage() {
             const data = await response.json();
 
             if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
-                // Move to liveness detection step
-                setCurrentStep(RegistrationStep.LIVE_DETECTION);
+                setCapturedImage(imageSrc);
+                moveToNextStep();
             } else {
                 toast.error('No face detected. Please try again with a clearer photo.');
             }
@@ -77,18 +153,47 @@ export default function AccountRegistrationPage() {
         }
     };
 
-    // Handle liveness detection completion
-    const handleLivenessPassed = (imageSrc: string) => {
-        setCapturedImage(imageSrc);
-        setLivenessVerified(true);
-        // Move to the personal info step
-        setCurrentStep(RegistrationStep.PERSONAL_INFO);
-    };
+    // Handle file upload
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
 
-    // Handle liveness detection cancellation
-    const handleLivenessCancel = () => {
-        // Go back to selfie capture step
-        setCurrentStep(RegistrationStep.TAKE_SELFIE);
+        // Check if file is an image
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please upload an image file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            if (!e.target?.result) return;
+
+            const imageSrc = e.target.result as string;
+
+            try {
+                // Check if face is detected
+                const response = await fetch('/api/face-detection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: imageSrc }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
+                    setCapturedImage(imageSrc);
+                    moveToNextStep();
+                } else {
+                    toast.error('No face detected in the uploaded image. Please try a different photo.');
+                }
+            } catch (error) {
+                console.error('Face detection error:', error);
+                toast.error('Error detecting face in the uploaded image');
+            }
+        };
+        reader.readAsDataURL(file);
     };
 
     // Move to next registration step
@@ -109,34 +214,27 @@ export default function AccountRegistrationPage() {
 
     // Handle registration submission
     const handleSubmit = async () => {
-        if (!agreedToTerms) {
-            toast.error('You must agree to the terms and conditions');
-            return;
-        }
-
-        if (password !== confirmPassword) {
-            toast.error('Passwords do not match');
+        if (!capturedImage || !selectedAlbumId) {
+            toast.error('Missing required information');
             return;
         }
 
         // Validate required fields
-        if (!firstName || !lastName || !email || !password) {
-            toast.error('Please fill in all required fields');
+        if (!firstName || !lastName) {
+            toast.error('First name and last name are required');
             return;
         }
 
         setIsLoading(true);
 
         try {
-            // Register the user
-            const response = await fetch('/api/auth/register', {
+            // Register the person
+            const response = await fetch('/api/people/register', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    email,
-                    password,
                     firstName,
                     middleName,
                     lastName,
@@ -146,8 +244,8 @@ export default function AccountRegistrationPage() {
                     religion,
                     denomination,
                     clan,
-                    faceId,
                     residentialPath,
+                    albumId: selectedAlbumId,
                     image: capturedImage
                 }),
             });
@@ -155,7 +253,7 @@ export default function AccountRegistrationPage() {
             const data = await response.json();
 
             if (response.ok) {
-                toast.success('Registration successful!');
+                toast.success('Person registered successfully');
                 moveToNextStep(); // Move to confirmation step
             } else {
                 toast.error(data.message || 'Registration failed');
@@ -171,48 +269,138 @@ export default function AccountRegistrationPage() {
     // Render step content based on current step
     const renderStepContent = () => {
         switch (currentStep) {
-            case RegistrationStep.TAKE_SELFIE:
+            case RegistrationStep.SELECT_ALBUM:
                 return (
                     <Card className="border-none shadow-lg">
                         <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Take a Selfie</CardTitle>
+                            <CardTitle>Select or Create an Album</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
                             <div className="text-center mb-4">
                                 <p>
-                                    Please take a clear selfie photo for your account.
+                                    You need to select an album to store the person&#39;s photo. You can also create a new album.
                                 </p>
                             </div>
 
-                            <SimpleCameraCapture onCapture={handleSelfieCapture} />
+                            {albums.length > 0 ? (
+                                <div className="space-y-4">
+                                    <Label htmlFor="albumSelect">Select an album</Label>
+                                    <Select
+                                        value={selectedAlbumId}
+                                        onValueChange={setSelectedAlbumId}
+                                    >
+                                        <SelectTrigger id="albumSelect">
+                                            <SelectValue placeholder="Select an album" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {albums.map(album => (
+                                                <SelectItem key={album.id} value={album.id}>{album.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ) : (
+                                <div className="p-4 bg-slate-50 rounded-md text-center text-slate-600">
+                                    <p>You don&#39;t have any albums yet. Please create one.</p>
+                                </div>
+                            )}
 
-                            <div className="mt-4 text-sm text-slate-500 text-center">
-                                <p>This photo will be used for face recognition to secure your account.</p>
+                            <div className="mt-6">
+                                <Button
+                                    className="w-full"
+                                    variant="outline"
+                                    onClick={() => setShowCreateAlbumDialog(true)}
+                                >
+                                    Create New Album
+                                </Button>
+                            </div>
+
+                            <div className="flex justify-end mt-6">
+                                <Button
+                                    onClick={moveToNextStep}
+                                    className="bg-indigo-600 hover:bg-indigo-700"
+                                    disabled={!selectedAlbumId}
+                                >
+                                    Continue
+                                </Button>
                             </div>
                         </CardContent>
                     </Card>
                 );
 
-            case RegistrationStep.LIVE_DETECTION:
+            case RegistrationStep.CAPTURE_PHOTO:
                 return (
                     <Card className="border-none shadow-lg">
                         <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Live Person Verification</CardTitle>
+                            <CardTitle>Take a Photo</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
-                            <LivenessDetection
-                                onLivenessPassed={handleLivenessPassed}
-                                onCancel={handleLivenessCancel}
-                            />
+                            <div className="text-center mb-4">
+                                <p>
+                                    Take a clear photo of the person you want to register or upload an image.
+                                </p>
+                            </div>
+
+                            <div className="flex justify-center space-x-4 mb-6">
+                                <Button
+                                    variant={!uploadMode ? "default" : "outline"}
+                                    onClick={() => setUploadMode(false)}
+                                    className="flex items-center"
+                                >
+                                    <Camera size={16} className="mr-2" />
+                                    Use Camera
+                                </Button>
+                                <Button
+                                    variant={uploadMode ? "default" : "outline"}
+                                    onClick={() => setUploadMode(true)}
+                                    className="flex items-center"
+                                >
+                                    <Upload size={16} className="mr-2" />
+                                    Upload Photo
+                                </Button>
+                            </div>
+
+                            {!uploadMode ? (
+                                <SimpleCameraCapture onCapture={handleCapture} />
+                            ) : (
+                                <div className="text-center">
+                                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 mb-4">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleFileUpload}
+                                            className="hidden"
+                                            id="file-upload"
+                                        />
+                                        <label
+                                            htmlFor="file-upload"
+                                            className="cursor-pointer flex flex-col items-center justify-center"
+                                        >
+                                            <Upload size={48} className="text-slate-400 mb-2" />
+                                            <span className="text-slate-600">Click to upload a photo</span>
+                                            <span className="text-sm text-slate-500">JPG, PNG, etc.</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between mt-6">
+                                <Button
+                                    variant="outline"
+                                    onClick={moveToPreviousStep}
+                                >
+                                    Back
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
                 );
 
-            case RegistrationStep.PERSONAL_INFO:
+            case RegistrationStep.PERSON_INFO:
                 return (
                     <Card className="border-none shadow-lg overflow-hidden">
                         <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Enter Your Information</CardTitle>
+                            <CardTitle>Enter Person Information</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
                             <div className="mb-6 flex justify-center">
@@ -221,7 +409,7 @@ export default function AccountRegistrationPage() {
                                         <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-indigo-100">
                                             <img
                                                 src={capturedImage}
-                                                alt="Your photo"
+                                                alt="Person photo"
                                                 className="w-full h-full object-cover"
                                             />
                                         </div>
@@ -354,68 +542,9 @@ export default function AccountRegistrationPage() {
                                             minLevel={2}
                                         />
                                         <p className="text-xs text-slate-500">
-                                            Please select your location down to at least the district level.
+                                            Please select the person&#39;s location down to at least the district level.
                                         </p>
                                     </div>
-                                </div>
-
-                                {/* Account information */}
-                                <div className="mt-4">
-                                    <h3 className="font-medium">Account Information</h3>
-                                    <div className="grid grid-cols-1 gap-4 mt-2">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="email">Email Address <span className="text-red-500">*</span></Label>
-                                            <Input
-                                                id="email"
-                                                type="email"
-                                                value={email}
-                                                onChange={(e) => setEmail(e.target.value)}
-                                                placeholder="Email Address"
-                                                required
-                                            />
-                                            <p className="text-xs text-slate-500">
-                                                You&#39;ll need to confirm your email address to complete registration.
-                                            </p>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="password">Password <span className="text-red-500">*</span></Label>
-                                                <Input
-                                                    id="password"
-                                                    type="password"
-                                                    value={password}
-                                                    onChange={(e) => setPassword(e.target.value)}
-                                                    placeholder="Password"
-                                                    required
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label htmlFor="confirmPassword">Confirm Password <span className="text-red-500">*</span></Label>
-                                                <Input
-                                                    id="confirmPassword"
-                                                    type="password"
-                                                    value={confirmPassword}
-                                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    placeholder="Confirm Password"
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Terms and conditions */}
-                                <div className="flex items-start space-x-2 pt-4">
-                                    <Checkbox
-                                        id="terms"
-                                        checked={agreedToTerms}
-                                        onCheckedChange={(checked) => setAgreedToTerms(checked as boolean)}
-                                    />
-                                    <Label htmlFor="terms" className="text-sm">
-                                        I agree to the <button type="button" onClick={() => setShowAgreementDialog(true)} className="text-indigo-600 hover:underline">terms and conditions</button> and to provide my data and photo at will.
-                                    </Label>
                                 </div>
                             </div>
 
@@ -430,7 +559,7 @@ export default function AccountRegistrationPage() {
                                 <Button
                                     onClick={handleSubmit}
                                     className="bg-indigo-600 hover:bg-indigo-700"
-                                    disabled={isLoading || !agreedToTerms}
+                                    disabled={isLoading}
                                 >
                                     {isLoading ? (
                                         <>
@@ -438,7 +567,7 @@ export default function AccountRegistrationPage() {
                                             Registering...
                                         </>
                                     ) : (
-                                        'Register'
+                                        'Register Person'
                                     )}
                                 </Button>
                             </div>
@@ -446,7 +575,7 @@ export default function AccountRegistrationPage() {
                     </Card>
                 );
 
-            case RegistrationStep.EMAIL_CONFIRMATION:
+            case RegistrationStep.CONFIRMATION:
                 return (
                     <Card className="border-none shadow-lg overflow-hidden">
                         <CardHeader className="text-center bg-slate-50">
@@ -457,21 +586,37 @@ export default function AccountRegistrationPage() {
                                 <CheckCircle className="h-10 w-10 text-green-600" />
                             </div>
 
-                            <h2 className="text-xl font-bold mb-4">Thank You!</h2>
+                            <h2 className="text-xl font-bold mb-4">Success!</h2>
                             <p className="mb-6">
-                                Your registration has been successfully completed. A confirmation link has been sent to your email address.
-                            </p>
-
-                            <p className="text-sm mb-6">
-                                Please check your email and click the confirmation link to activate your account.
+                                The person has been successfully registered to your album and added to the PNG collection.
                             </p>
 
                             <div className="flex justify-center space-x-4">
                                 <Button
-                                    onClick={() => router.push('/login')}
+                                    variant="outline"
+                                    onClick={() => {
+                                        // Reset form and go back to first step
+                                        setCapturedImage(null);
+                                        setFirstName('');
+                                        setMiddleName('');
+                                        setLastName('');
+                                        setGender('');
+                                        setDateOfBirth('');
+                                        setOccupation('');
+                                        setReligion('');
+                                        setDenomination('');
+                                        setClan('');
+                                        setResidentialPath('');
+                                        setCurrentStep(RegistrationStep.SELECT_ALBUM);
+                                    }}
+                                >
+                                    Register Another Person
+                                </Button>
+                                <Button
+                                    onClick={() => router.push('/profile')}
                                     className="bg-indigo-600 hover:bg-indigo-700"
                                 >
-                                    Go to Login
+                                    Go to Profile
                                 </Button>
                             </div>
                         </CardContent>
@@ -483,13 +628,23 @@ export default function AccountRegistrationPage() {
         }
     };
 
+    if (isLoading && currentStep === RegistrationStep.SELECT_ALBUM) {
+        return (
+            <Layout title="Loading..." showHistory={false} showNewSearch={false}>
+                <div className="flex justify-center items-center h-64">
+                    <RefreshCw className="animate-spin h-8 w-8 text-indigo-600" />
+                </div>
+            </Layout>
+        );
+    }
+
     return (
         <>
             <Head>
-                <title>Register Account - PNG Pess Book</title>
-                <meta name="description" content="Register for a PNG Pess Book Account" />
+                <title>Register a Person - PNG Pess Book</title>
+                <meta name="description" content="Register a person to PNG Pess Book" />
             </Head>
-            <Layout title="Create a PNG Pess Book Account" showHistory={false} showNewSearch={false}>
+            <Layout title="Register a Person" showHistory={false} showNewSearch={false}>
                 <div className="max-w-3xl mx-auto">
                     {/* Steps indicator */}
                     <div className="mb-8">
@@ -516,11 +671,11 @@ export default function AccountRegistrationPage() {
                                             {step}
                                         </div>
                                         <span className="text-xs block whitespace-nowrap">
-                                            {step === 1 && "Take Selfie"}
-                                            {step === 2 && "Live Detection"}
-                                            {step === 3 && "Your Information"}
+                      {step === 1 && "Select Album"}
+                                            {step === 2 && "Take Photo"}
+                                            {step === 3 && "Person Info"}
                                             {step === 4 && "Confirmation"}
-                                        </span>
+                    </span>
                                     </div>
                                 );
                             })}
@@ -533,65 +688,43 @@ export default function AccountRegistrationPage() {
                 </div>
             </Layout>
 
-            {/* User Agreement Dialog */}
-            <Dialog open={showAgreementDialog} onOpenChange={setShowAgreementDialog}>
+            {/* Create Album Dialog */}
+            <Dialog open={showCreateAlbumDialog} onOpenChange={setShowCreateAlbumDialog}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>PNG Pess Book User Agreement</DialogTitle>
-                        <DialogDescription>
-                            Please read and agree to the following terms
-                        </DialogDescription>
+                        <DialogTitle>Create New Album</DialogTitle>
                     </DialogHeader>
 
-                    <ScrollArea className="max-h-[60vh] mt-4">
-                        <div className="p-1">
-                            <h3 className="font-semibold mb-2">PNG Pess Book User Agreement</h3>
-                            <p className="mb-4 text-sm">
-                                By continuing with the registration process, you agree to the following terms:
-                            </p>
-
-                            <h4 className="font-medium mb-1 text-sm">Data Collection and Storage</h4>
-                            <p className="mb-3 text-sm">
-                                You consent to PNG Pess Book collecting, storing, and processing your personal information,
-                                including your facial image, name, and residential location data.
-                            </p>
-
-                            <h4 className="font-medium mb-1 text-sm">Data Usage</h4>
-                            <p className="mb-3 text-sm">
-                                Your information may be used for identity verification purposes within the PNG Pess Book system.
-                                Your data may be accessible to authorized administrators of the system.
-                            </p>
-
-                            <h4 className="font-medium mb-1 text-sm">Face Recognition</h4>
-                            <p className="mb-3 text-sm">
-                                You consent to your facial image being used for face recognition purposes within the PNG Pess Book system.
-                                This includes matching your face against existing entries in the database for identification purposes.
-                            </p>
-
-                            <h4 className="font-medium mb-1 text-sm">Account Management</h4>
-                            <p className="mb-3 text-sm">
-                                You are responsible for maintaining the confidentiality of your account credentials.
-                                You have the right to update your information or request removal of your data by contacting the system administrators.
-                            </p>
-
-                            <h4 className="font-medium mb-1 text-sm">Privacy and Security</h4>
-                            <p className="mb-3 text-sm">
-                                PNG Pess Book implements reasonable security measures to protect your data.
-                                However, no system can guarantee absolute security, and you acknowledge this limitation.
-                            </p>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="albumName">Album Name</Label>
+                            <Input
+                                id="albumName"
+                                value={newAlbumName}
+                                onChange={(e) => setNewAlbumName(e.target.value)}
+                                placeholder="Enter album name"
+                            />
                         </div>
-                    </ScrollArea>
+                    </div>
 
-                    <DialogFooter className="flex space-x-2 justify-between mt-4">
-                        <Button variant="ghost" className="border-gray" onClick={() => setShowAgreementDialog(false)}>Cancel</Button>
+                    <DialogFooter className="flex space-x-2 justify-between">
+                        <Button variant="outline" onClick={() => setShowCreateAlbumDialog(false)}>
+                            <X size={16} className="mr-2" />
+                            Cancel
+                        </Button>
                         <Button
-                            onClick={() => {
-                                setAgreedToTerms(true);
-                                setShowAgreementDialog(false);
-                            }}
+                            onClick={handleCreateAlbum}
+                            disabled={isLoading || !newAlbumName.trim()}
                             className="bg-indigo-600 hover:bg-indigo-700"
                         >
-                            I Agree
+                            {isLoading ? (
+                                <>
+                                    <RefreshCw size={16} className="mr-2 animate-spin" />
+                                    Creating...
+                                </>
+                            ) : (
+                                'Create Album'
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

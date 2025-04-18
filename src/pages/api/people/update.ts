@@ -26,7 +26,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(401).json({ message: 'Unauthorized: Invalid token' });
         }
 
-        // Get the updated user data from request body
+        const { id } = req.query;
+
+        if (!id || typeof id !== 'string') {
+            return res.status(400).json({ message: 'Person ID is required' });
+        }
+
+        // Get update data
         const {
             firstName,
             middleName,
@@ -37,16 +43,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             religion,
             denomination,
             clan,
-            nid,
-            electorId,
-            passport,
-            driversLicense,
             residentialPath
         } = req.body;
 
-        // Update the user in the database
-        const updatedUser = await prisma.user.update({
-            where: { id: decodedToken.userId },
+        // Verify the person exists and was registered by this user
+        const existingPerson = await prisma.person.findFirst({
+            where: {
+                id,
+                registeredById: decodedToken.userId
+            }
+        });
+
+        if (!existingPerson) {
+            return res.status(404).json({ message: 'Person not found or not registered by you' });
+        }
+
+        // Update person
+        const updatedPerson = await prisma.person.update({
+            where: { id },
             data: {
                 firstName,
                 middleName,
@@ -57,40 +71,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 religion,
                 denomination,
                 clan,
-                nid,
-                electorId,
-                passport,
-                driversLicense,
                 residentialPath
-            },
-            select: {
-                id: true,
-                email: true,
-                firstName: true,
-                middleName: true,
-                lastName: true,
-                gender: true,
-                dateOfBirth: true,
-                profileImageUrl: true,
-                occupation: true,
-                religion: true,
-                denomination: true,
-                clan: true,
-                nid: true,
-                electorId: true,
-                passport: true,
-                driversLicense: true,
-                residentialPath: true,
-                role: true
             }
         });
 
         return res.status(200).json({
-            message: 'Profile updated successfully',
-            user: updatedUser
+            message: 'Person updated successfully',
+            person: updatedPerson
         });
     } catch (error) {
-        console.error('Error updating user profile:', error);
-        return res.status(500).json({ message: 'Error updating profile' });
+        console.error('Error updating person:', error);
+        return res.status(500).json({ message: 'Error updating person' });
     }
 }

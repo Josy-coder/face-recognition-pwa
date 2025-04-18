@@ -7,29 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
-import CameraCapture from '@/components/capture/CameraCapture';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { RefreshCw, CheckCircle, Camera } from 'lucide-react';
-import FolderSelector from '@/components/capture/FolderSelector';
+import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
+import { Camera, Upload } from 'lucide-react';
 
 export default function MatchPage() {
     const router = useRouter();
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [isSearching, setIsSearching] = useState(false);
-    const [isFaceDetected, setIsFaceDetected] = useState(false);
-    const [step, setStep] = useState<'capture' | 'select-collection' | 'confirm'>('capture');
-
-    // Collection selection state
-    const [selectedCollections, setSelectedCollections] = useState<{[key: string]: boolean}>({
-        PNG: true, // PNG Pessbook is selected by default
-        ABG: false,
-        MKA: false
-    });
-
-    // Location filters for specific area search
-    const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-    const [showLocationSelector, setShowLocationSelector] = useState(false);
+    const [step, setStep] = useState<'capture' | 'confirm'>('capture');
+    const [uploadMode, setUploadMode] = useState<boolean>(false);
 
     // Handle image capture
     const handleCapture = async (imageSrc: string) => {
@@ -48,67 +34,72 @@ export default function MatchPage() {
             const data = await response.json();
 
             if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
-                setIsFaceDetected(true);
-                toast.success('Face detected! Click Continue when ready.');
-                // Don't automatically proceed to the next step
-                // Let the user decide when to move forward
+                // Face detected, proceed to confirm step
+                setStep('confirm');
+                // Don't show a success toast to keep the process simple
             } else {
                 toast.error('No face detected in the image. Please try again.');
-                setIsFaceDetected(false);
+                setCapturedImage(null);
             }
         } catch (error) {
             console.error('Face detection error:', error);
-            toast.error('Error detecting face');
+            toast.error('Error detecting face. Please try again.');
+            setCapturedImage(null);
         }
     };
 
-    // Toggle collection selection
-    const toggleCollection = (collection: string) => {
-        setSelectedCollections(prev => ({
-            ...prev,
-            [collection]: !prev[collection]
-        }));
-    };
+    // Handle image upload
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
 
-    // Handle back button
-    const handleBack = () => {
-        if (step === 'select-collection') {
-            setStep('capture');
-        } else if (step === 'confirm') {
-            setStep('select-collection');
-        }
-    };
-
-    // Handle search confirmation
-    const handleConfirm = () => {
-        setStep('confirm');
-    };
-
-    // Get selected collection IDs
-    const getSelectedCollections = (): string[] => {
-        return Object.entries(selectedCollections)
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            .filter(([_, isSelected]) => isSelected)
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            .map(([collection, _]) => collection);
-    };
-
-    // Handle folder selection for filtering
-    const handleFolderSelect = (folders: string[]) => {
-        setSelectedLocations(folders);
-    };
-
-    // Perform the search
-    const handleSearch = async () => {
-        if (!capturedImage) {
-            toast.error('No image captured. Please try again.');
+        // Check if file is an image
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please upload an image file');
             return;
         }
 
-        const collections = getSelectedCollections();
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            if (e.target?.result) {
+                const imageSrc = e.target.result as string;
 
-        if (collections.length === 0) {
-            toast.error('Please select at least one collection');
+                // First set the image to show loading state
+                setCapturedImage(imageSrc);
+
+                // Then check if face is detected in the image
+                try {
+                    const response = await fetch('/api/face-detection', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ image: imageSrc }),
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
+                        // Face detected, proceed to confirm step
+                        setStep('confirm');
+                    } else {
+                        toast.error('No face detected in the uploaded image. Please try a different photo.');
+                        setCapturedImage(null);
+                    }
+                } catch (error) {
+                    console.error('Face detection error:', error);
+                    toast.error('Error detecting face in the uploaded image');
+                    setCapturedImage(null);
+                }
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // Handle search
+    const handleSearch = () => {
+        if (!capturedImage) {
+            toast.error('No image captured. Please try again.');
             return;
         }
 
@@ -117,14 +108,7 @@ export default function MatchPage() {
         try {
             // Store search data in localStorage
             localStorage.setItem('faceRecog_searchImage', capturedImage);
-            localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(collections));
-
-            // Include location filters if selected
-            if (selectedLocations.length > 0) {
-                localStorage.setItem('faceRecog_locationFilters', JSON.stringify(selectedLocations));
-            } else {
-                localStorage.removeItem('faceRecog_locationFilters');
-            }
+            localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(['PNG']));
 
             // Navigate to search page which will process the search
             router.push('/search');
@@ -135,173 +119,73 @@ export default function MatchPage() {
         }
     };
 
-    // Retake photo
-    const retakePhoto = () => {
-        setCapturedImage(null);
-        setIsFaceDetected(false);
+    // Cancel and go back
+    const handleCancel = () => {
+        if (step === 'confirm') {
+            // Go back to capture step
+            setStep('capture');
+            setCapturedImage(null);
+        }
     };
 
-    // Render content based on current step
+// Render content based on current step
     const renderContent = () => {
         switch (step) {
             case 'capture':
                 return (
                     <Card className="border-none shadow-lg">
                         <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Take a Photo</CardTitle>
+                            <CardTitle>Match my face or a photo</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
                             <div className="text-center mb-6">
                                 <p className="mb-4">
-                                    Take a clear photo of yourself for matching against our database.
+                                    Take a clear photo or upload an image for matching against our database.
                                 </p>
 
-                                {capturedImage && (
-                                    <div className="mb-6">
-                                        <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100">
-                                            <img
-                                                src={capturedImage}
-                                                alt="Captured face"
-                                                className="w-full h-full object-cover"
-                                            />
-                                        </div>
-
-                                        <div className="flex justify-center space-x-2 mt-4">
-                                            <Button
-                                                variant="outline"
-                                                onClick={retakePhoto}
-                                                className="flex items-center"
-                                            >
-                                                <Camera size={16} className="mr-2" />
-                                                Retake Photo
-                                            </Button>
-
-                                            {isFaceDetected && (
-                                                <Button
-                                                    onClick={() => setStep('select-collection')}
-                                                    className="bg-indigo-600 hover:bg-indigo-700 flex items-center"
-                                                >
-                                                    <CheckCircle size={16} className="mr-2" />
-                                                    Continue
-                                                </Button>
-                                            )}
-                                        </div>
-
-                                        {isFaceDetected && (
-                                            <div className="mt-2 flex items-center justify-center text-sm text-green-600">
-                                                <CheckCircle size={16} className="mr-1" />
-                                                Face detected successfully!
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            {!capturedImage && <CameraCapture onCapture={handleCapture} />}
-                        </CardContent>
-                    </Card>
-                );
-
-            case 'select-collection':
-                return (
-                    <Card className="border-none shadow-lg">
-                        <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Select Collections to Search</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-6">
-                            <div className="text-center mb-6">
-                                {capturedImage && (
-                                    <div className="mb-6">
-                                        <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100">
-                                            <img
-                                                src={capturedImage}
-                                                alt="Captured face"
-                                                className="w-full h-full object-cover"
-                                            />
-                                        </div>
-                                        {isFaceDetected && (
-                                            <div className="mt-2 flex items-center justify-center text-sm text-green-600">
-                                                <CheckCircle size={16} className="mr-1" />
-                                                Face detected successfully!
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                <p className="mb-4">Select which collections you want to search in:</p>
-                            </div>
-
-                            <div className="space-y-4 mb-6">
-                                <div className="flex items-center p-3 border rounded-md bg-amber-50">
-                                    <Checkbox
-                                        id="png-collection"
-                                        checked={selectedCollections.PNG}
-                                        onCheckedChange={() => toggleCollection('PNG')}
-                                    />
-                                    <Label htmlFor="png-collection" className="ml-2 font-medium">
-                                        PNG Pessbook
-                                    </Label>
-                                </div>
-
-                                <div className="flex items-center p-3 border rounded-md">
-                                    <Checkbox
-                                        id="abg-collection"
-                                        checked={selectedCollections.ABG}
-                                        onCheckedChange={() => toggleCollection('ABG')}
-                                    />
-                                    <Label htmlFor="abg-collection" className="ml-2">
-                                        ABG Pessbook (Autonomous Region of Bougainville)
-                                    </Label>
-                                </div>
-
-                                <div className="flex items-center p-3 border rounded-md">
-                                    <Checkbox
-                                        id="mka-collection"
-                                        checked={selectedCollections.MKA}
-                                        onCheckedChange={() => toggleCollection('MKA')}
-                                    />
-                                    <Label htmlFor="mka-collection" className="ml-2">
-                                        MKA Pessbook (Motu Koitabu Assembly)
-                                    </Label>
+                                <div className="flex justify-center space-x-4 mb-6">
+                                    <Button
+                                        variant={!uploadMode ? "default" : "outline"}
+                                        onClick={() => setUploadMode(false)}
+                                        className="flex items-center"
+                                    >
+                                        <Camera size={16} className="mr-2" />
+                                        Use Camera
+                                    </Button>
+                                    <Button
+                                        variant={uploadMode ? "default" : "outline"}
+                                        onClick={() => setUploadMode(true)}
+                                        className="flex items-center"
+                                    >
+                                        <Upload size={16} className="mr-2" />
+                                        Upload Photo
+                                    </Button>
                                 </div>
                             </div>
 
-                            <div className="mt-6 mb-6">
-                                <Button
-                                    variant={showLocationSelector ? "secondary" : "outline"}
-                                    onClick={() => setShowLocationSelector(!showLocationSelector)}
-                                    className="w-full"
-                                >
-                                    {showLocationSelector ? "Hide Location Filters" : "Add Location Filters (Optional)"}
-                                </Button>
-
-                                {showLocationSelector && (
-                                    <div className="mt-4">
-                                        <FolderSelector
-                                            onFolderSelect={handleFolderSelect}
-                                            initialSelected={selectedLocations}
-                                            minLevel={0} // Allow any level for filtering
+                            {!uploadMode ? (
+                                <SimpleCameraCapture onCapture={handleCapture} />
+                            ) : (
+                                <div className="text-center">
+                                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 mb-4">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleFileUpload}
+                                            className="hidden"
+                                            id="file-upload"
                                         />
+                                        <label
+                                            htmlFor="file-upload"
+                                            className="cursor-pointer flex flex-col items-center justify-center"
+                                        >
+                                            <Upload size={48} className="text-slate-400 mb-2" />
+                                            <span className="text-slate-600">Click to upload a photo</span>
+                                            <span className="text-sm text-slate-500">JPG, PNG, etc.</span>
+                                        </label>
                                     </div>
-                                )}
-                            </div>
-
-                            <div className="flex justify-between mt-6">
-                                <Button
-                                    variant="outline"
-                                    onClick={handleBack}
-                                >
-                                    Back
-                                </Button>
-
-                                <Button
-                                    onClick={handleConfirm}
-                                    className="bg-indigo-600 hover:bg-indigo-700"
-                                    disabled={getSelectedCollections().length === 0}
-                                >
-                                    Continue
-                                </Button>
-                            </div>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 );
@@ -328,42 +212,16 @@ export default function MatchPage() {
 
                                 <h3 className="text-lg font-semibold mb-2">Ready to Search</h3>
                                 <p className="mb-4">
-                                    We&#39;ll search for matches in the following collections:
+                                    We&#39;ll search for matches in the PNG Pessbook database.
                                 </p>
-
-                                <div className="bg-slate-50 p-3 rounded-md inline-block">
-                                    <ul className="text-left">
-                                        {getSelectedCollections().map(collection => (
-                                            <li key={collection} className="flex items-center mb-1">
-                                                <CheckCircle size={16} className="mr-2 text-green-600" />
-                                                {collection} Pessbook
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-
-                                {selectedLocations.length > 0 && (
-                                    <div className="mt-4">
-                                        <p className="mb-2">Filtered by locations:</p>
-                                        <div className="bg-slate-50 p-3 rounded-md inline-block max-w-full">
-                                            <div className="text-left max-h-24 overflow-y-auto">
-                                                {selectedLocations.map(location => (
-                                                    <div key={location} className="text-xs mb-1 truncate">
-                                                        {location}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="flex justify-between mt-6">
                                 <Button
                                     variant="outline"
-                                    onClick={handleBack}
+                                    onClick={handleCancel}
                                 >
-                                    Back
+                                    Cancel
                                 </Button>
 
                                 <Button
@@ -371,14 +229,7 @@ export default function MatchPage() {
                                     className="bg-indigo-600 hover:bg-indigo-700"
                                     disabled={isSearching}
                                 >
-                                    {isSearching ? (
-                                        <>
-                                            <RefreshCw size={16} className="mr-2 animate-spin" />
-                                            Searching...
-                                        </>
-                                    ) : (
-                                        'Search Now'
-                                    )}
+                                    {isSearching ? "Searching..." : "Match"}
                                 </Button>
                             </div>
                         </CardContent>
@@ -398,17 +249,14 @@ export default function MatchPage() {
                     {/* Step indicators */}
                     <div className="flex justify-between items-center mb-6">
                         <div className="flex w-full justify-between items-center relative">
-                            {[1, 2, 3, 4].map((stepNum) => {
+                            {[1, 2, 3].map((stepNum) => {
                                 // Determine if step is active or completed
                                 let isActive = false;
                                 let isCompleted = false;
 
                                 if (step === 'capture' && stepNum === 1) isActive = true;
-                                if (step === 'select-collection' && stepNum === 2) isActive = true;
-                                if (step === 'confirm' && stepNum === 3) isActive = true;
-
-                                if ((step === 'select-collection' || step === 'confirm') && stepNum === 1) isCompleted = true;
-                                if (step === 'confirm' && stepNum === 2) isCompleted = true;
+                                if (step === 'confirm' && stepNum === 2) isActive = true;
+                                if (step === 'confirm' && stepNum === 1) isCompleted = true;
 
                                 return (
                                     <div
@@ -426,9 +274,8 @@ export default function MatchPage() {
                                         </div>
                                         <span className="text-xs block whitespace-nowrap">
                                             {stepNum === 1 && "Take Photo"}
-                                            {stepNum === 2 && "Select Dataset"}
-                                            {stepNum === 3 && "Confirm"}
-                                            {stepNum === 4 && "View Results"}
+                                            {stepNum === 2 && "Confirm"}
+                                            {stepNum === 3 && "View Results"}
                                         </span>
                                     </div>
                                 );

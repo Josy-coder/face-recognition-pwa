@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
@@ -9,7 +7,7 @@ import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
-import { RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users, Save, X } from 'lucide-react';
+import { RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users, Save, X, PlusCircle } from 'lucide-react';
 import CameraCapture from '@/components/capture/CameraCapture';
 import ResidentialPathDisplay from '@/components/location/ResidentialPathDisplay';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -41,6 +39,11 @@ interface User {
     religion?: string;
     denomination?: string;
     clan?: string;
+    // Official ID fields
+    nid?: string;
+    electorId?: string;
+    passport?: string;
+    driversLicense?: string;
 }
 
 // Define the Person type for registered people
@@ -54,6 +57,15 @@ interface Person {
     s3ImagePath?: string;
     residentialPath?: string;
     registeredById?: string;
+    albumId?: string;
+}
+
+// Define the Album type
+interface Album {
+    id: string;
+    name: string;
+    description?: string;
+    createdAt: string;
 }
 
 export default function ProfilePage() {
@@ -62,6 +74,7 @@ export default function ProfilePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('profile');
     const [registeredPeople, setRegisteredPeople] = useState<Person[]>([]);
+    const [albums, setAlbums] = useState<Album[]>([]);
     const [showCameraCapture, setShowCameraCapture] = useState(false);
     const [editFlowState, setEditFlowState] = useState<EditFlowState>(EditFlowState.IDLE);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -98,9 +111,10 @@ export default function ProfilePage() {
                         setSelectedLocation(userData.residentialPath);
                     }
 
-                    // Only fetch registered people for regular users, not admins
+                    // Only fetch registered people and albums for regular users, not admins
                     if (isLoggedIn && !isAdminLoggedIn) {
                         fetchRegisteredPeople();
+                        fetchAlbums();
                     }
                 } else {
                     // Otherwise fetch from API
@@ -127,6 +141,7 @@ export default function ProfilePage() {
                             // Only fetch registered people for regular users, not admins
                             if (!data.isAdmin) {
                                 fetchRegisteredPeople();
+                                fetchAlbums();
                             }
                         } else {
                             console.log("Response not OK:", await response.text());
@@ -154,7 +169,7 @@ export default function ProfilePage() {
         };
 
         fetchUserProfile();
-    }, [router, setStoreUser]);
+    }, [router, setStoreUser, isLoggedIn, isAdminLoggedIn, userData]);
 
     // Fetch people registered by the user
     const fetchRegisteredPeople = async () => {
@@ -164,9 +179,27 @@ export default function ProfilePage() {
             if (response.ok) {
                 const data = await response.json();
                 setRegisteredPeople(data.people || []);
+            } else {
+                console.error('Failed to fetch registered people:', await response.text());
             }
         } catch (error) {
             console.error('Error fetching registered people:', error);
+        }
+    };
+
+    // Fetch user's albums
+    const fetchAlbums = async () => {
+        try {
+            const response = await fetch('/api/albums/list');
+
+            if (response.ok) {
+                const data = await response.json();
+                setAlbums(data.albums || []);
+            } else {
+                console.error('Failed to fetch albums:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error fetching albums:', error);
         }
     };
 
@@ -345,6 +378,16 @@ export default function ProfilePage() {
         if (user?.residentialPath) {
             setSelectedLocation(user.residentialPath);
         }
+    };
+
+    // Navigate to face registration page
+    const goToFaceRegistration = () => {
+        router.push('/register-person');
+    };
+
+    // Navigate to create album page
+    const goToCreateAlbum = () => {
+        router.push('/create-album');
     };
 
     // Get full name
@@ -591,6 +634,49 @@ export default function ProfilePage() {
                                                 placeholder="Clan"
                                             />
                                         </div>
+
+                                        {/* Official ID section */}
+                                        <div className="pt-4">
+                                            <h4 className="text-md font-medium mb-3">Official Identification</h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="edit-nid">NID</Label>
+                                                    <Input
+                                                        id="edit-nid"
+                                                        value={editedUser.nid || ''}
+                                                        onChange={(e) => handleInputChange('nid', e.target.value)}
+                                                        placeholder="National ID"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="edit-electorId">Elector ID</Label>
+                                                    <Input
+                                                        id="edit-electorId"
+                                                        value={editedUser.electorId || ''}
+                                                        onChange={(e) => handleInputChange('electorId', e.target.value)}
+                                                        placeholder="Elector ID"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="edit-passport">Passport</Label>
+                                                    <Input
+                                                        id="edit-passport"
+                                                        value={editedUser.passport || ''}
+                                                        onChange={(e) => handleInputChange('passport', e.target.value)}
+                                                        placeholder="Passport Number"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="edit-driversLicense">Driver&#39;s License</Label>
+                                                    <Input
+                                                        id="edit-driversLicense"
+                                                        value={editedUser.driversLicense || ''}
+                                                        onChange={(e) => handleInputChange('driversLicense', e.target.value)}
+                                                        placeholder="Driver's License"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     {/* Residential Location Selector */}
@@ -678,7 +764,7 @@ export default function ProfilePage() {
                     {editFlowState === EditFlowState.IDLE && (
                         <div className="mb-6 flex flex-col md:flex-row items-center md:items-start gap-6">
                             {/* Profile photo card */}
-                            <Card className="w-full md:w-1/3 border-none ">
+                            <Card className="w-full md:w-1/3 border-none">
                                 <CardContent className="p-6 text-center">
                                     <div className="mb-6">
                                         <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100 relative">
@@ -719,7 +805,7 @@ export default function ProfilePage() {
 
                                 <CardContent className="px-6 py-4">
                                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                        <TabsList className="grid w-full grid-cols-2 mb-4">
+                                        <TabsList className="grid w-full grid-cols-3 mb-4">
                                             <TabsTrigger value="profile" className="flex items-center gap-2">
                                                 <UserCircle size={16} />
                                                 <span>Profile</span>
@@ -727,6 +813,10 @@ export default function ProfilePage() {
                                             <TabsTrigger value="people" className="flex items-center gap-2">
                                                 <Users size={16} />
                                                 <span>Registered People</span>
+                                            </TabsTrigger>
+                                            <TabsTrigger value="albums" className="flex items-center gap-2">
+                                                <Users size={16} />
+                                                <span>My Albums</span>
                                             </TabsTrigger>
                                         </TabsList>
 
@@ -773,6 +863,29 @@ export default function ProfilePage() {
                                                     </div>
                                                 </div>
 
+                                                {/* Official IDs */}
+                                                <div>
+                                                    <h3 className="text-lg font-medium mb-4">Official Identification</h3>
+                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">NID</p>
+                                                            <p>{user.nid || 'Not provided'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Elector ID</p>
+                                                            <p>{user.electorId || 'Not provided'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Passport</p>
+                                                            <p>{user.passport || 'Not provided'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-500">Driver&#39;s License</p>
+                                                            <p>{user.driversLicense || 'Not provided'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
                                                 {user.residentialPath && (
                                                     <ResidentialPathDisplay path={user.residentialPath} />
                                                 )}
@@ -794,9 +907,9 @@ export default function ProfilePage() {
                                                 <h3 className="text-lg font-medium">People You&#39;ve Registered</h3>
                                                 <Button
                                                     className="flex items-center bg-indigo-600 hover:bg-indigo-700"
-                                                    onClick={() => router.push('/register-person')}
+                                                    onClick={goToFaceRegistration}
                                                 >
-                                                    <Users size={16} className="mr-2" />
+                                                    <PlusCircle size={16} className="mr-2" />
                                                     Register New Person
                                                 </Button>
                                             </div>
@@ -804,6 +917,13 @@ export default function ProfilePage() {
                                             {registeredPeople.length === 0 ? (
                                                 <div className="text-center py-8 bg-slate-50 rounded-md">
                                                     <p className="text-slate-500">You haven&#39;t registered any people yet.</p>
+                                                    <Button
+                                                        className="mt-4 flex items-center mx-auto bg-indigo-600 hover:bg-indigo-700"
+                                                        onClick={goToFaceRegistration}
+                                                    >
+                                                        <PlusCircle size={16} className="mr-2" />
+                                                        Register Your First Person
+                                                    </Button>
                                                 </div>
                                             ) : (
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -847,6 +967,74 @@ export default function ProfilePage() {
                                                                     onClick={() => router.push(`/edit-person/${person.id}`)}
                                                                 >
                                                                     Edit Details
+                                                                </Button>
+                                                            </CardFooter>
+                                                        </Card>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </TabsContent>
+
+                                        <TabsContent value="albums" className="mt-2">
+                                            <div className="mb-4 flex justify-between items-center">
+                                                <h3 className="text-lg font-medium">My Albums</h3>
+                                                <Button
+                                                    className="flex items-center bg-indigo-600 hover:bg-indigo-700"
+                                                    onClick={goToCreateAlbum}
+                                                >
+                                                    <PlusCircle size={16} className="mr-2" />
+                                                    Create New Album
+                                                </Button>
+                                            </div>
+
+                                            {albums.length === 0 ? (
+                                                <div className="text-center py-8 bg-slate-50 rounded-md">
+                                                    <p className="text-slate-500">You haven&#39;t created any albums yet.</p>
+                                                    <Button
+                                                        className="mt-4 flex items-center mx-auto bg-indigo-600 hover:bg-indigo-700"
+                                                        onClick={goToCreateAlbum}
+                                                    >
+                                                        <PlusCircle size={16} className="mr-2" />
+                                                        Create Your First Album
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    {albums.map(album => (
+                                                        <Card key={album.id} className="overflow-hidden">
+                                                            <CardContent className="p-4">
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className="w-16 h-16 flex items-center justify-center rounded-lg bg-slate-100">
+                                                                        <Users size={24} className="text-slate-400" />
+                                                                    </div>
+
+                                                                    <div>
+                                                                        <h4 className="font-medium">{album.name}</h4>
+                                                                        <p className="text-sm text-slate-500">
+                                                                            Created: {new Date(album.createdAt).toLocaleDateString()}
+                                                                        </p>
+                                                                        {album.description && (
+                                                                            <p className="text-xs text-slate-500">{album.description}</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </CardContent>
+                                                            <CardFooter className="bg-slate-50 p-2 flex justify-end space-x-2">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="text-indigo-600 hover:text-indigo-700"
+                                                                    onClick={() => router.push(`/albums/${album.id}`)}
+                                                                >
+                                                                    View Album
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="text-indigo-600 hover:text-indigo-700"
+                                                                    onClick={() => router.push(`/register-person?albumId=${album.id}`)}
+                                                                >
+                                                                    Add Person
                                                                 </Button>
                                                             </CardFooter>
                                                         </Card>

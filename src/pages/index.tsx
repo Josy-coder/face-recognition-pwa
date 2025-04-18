@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Layout from '@/components/layout/layout';
+import { Camera, Upload } from 'lucide-react';
+import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
 
 export default function HomePage() {
   const router = useRouter();
-  const [, setTotalImages] = useState<number | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [, setIsLoggedIn] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [uploadMode, setUploadMode] = useState(false);
 
   // Check if user is logged in
   useEffect(() => {
@@ -17,31 +19,81 @@ export default function HomePage() {
     setIsLoggedIn(!!token);
   }, []);
 
-  // Fetch total images in PNG collection when component mounts
-  useEffect(() => {
-    const fetchCollectionInfo = async () => {
-      try {
-        const response = await fetch('/api/collections/info?collectionId=PNG');
-        if (response.ok) {
-          const data = await response.json();
-          setTotalImages(data.faceCount || 0);
-        }
-      } catch (error) {
-        console.error('Error fetching collection info:', error);
+  // Handle captured image
+  const handleCapture = async (imageSrc: string) => {
+    try {
+      // Check if face is detected in the image
+      const response = await fetch('/api/face-detection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: imageSrc }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
+        // Store captured image in localStorage
+        localStorage.setItem('faceRecog_searchImage', imageSrc);
+        localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(['PNG']));
+
+        // Navigate to search page
+        router.push('/search');
+      } else {
+        alert('No face detected in the image. Please try again.');
       }
-    };
-
-    fetchCollectionInfo();
-  }, []);
-
-  // Handle face match button click
-  const handleFaceMatch = () => {
-    router.push('/match');
+    } catch (error) {
+      console.error('Face detection error:', error);
+      alert('Error detecting face. Please try again.');
+    }
   };
 
-  // Handle register button click
-  const handleRegister = () => {
-    router.push('/register');
+  // Handle file upload
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check if file is an image
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const imageSrc = e.target.result as string;
+
+        try {
+          // Check if face is detected in the image
+          const response = await fetch('/api/face-detection', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ image: imageSrc }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
+            // Store image in localStorage
+            localStorage.setItem('faceRecog_searchImage', imageSrc);
+            localStorage.setItem('faceRecog_selectedFolders', JSON.stringify(['PNG']));
+
+            // Navigate to search page
+            router.push('/search');
+          } else {
+            alert('No face detected in the uploaded image. Please try a different photo.');
+          }
+        } catch (error) {
+          console.error('Face detection error:', error);
+          alert('Error detecting face in the uploaded image');
+        }
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -52,106 +104,79 @@ export default function HomePage() {
         </Head>
         <Layout title="" showHistory={false} showNewSearch={false}>
           <div className="max-w-4xl mx-auto">
-            <Card className="border-none shadow-none mb-8">
+            <Card className="border-none mb-8">
+              <CardHeader className="text-center bg-slate-50">
+                <CardTitle className="text-2xl">Match my face or a photo</CardTitle>
+              </CardHeader>
               <CardContent className="p-6">
-                <div className="md:flex gap-8 items-center">
-                  <div className="md:w-1/2 md:pr-6 pb-6 md:pb-0">
-                    <h1 className="text-3xl font-bold text-indigo-700 mb-4">Welcome to PNG Pess Book</h1>
-                    <p className="mb-4 text-slate-700">
-                      PNG Pessbook is a platform to register faces of PNG people. It has become an essential National Electronic Technology UI proven to be an inexpensive exercise to implement in Papua New Guinea.
-                    </p>
-                    <p className="mb-4 text-slate-700">
-                      As a result the application of unique identity in many areas such as voting, financial inclusion and mobilization of even public servants work attendance is a challenge to achieve.
-                    </p>
-                    <p className="mb-4 text-slate-700">
-                      This is a community based project so we encourage all organizations to join us in simple face photo to id matching. At this stage we do not know if this will be a success or not but we encourage all Papua New Guineans to participate so we the people can demonstrate our willingness to adopt technology in many challenging areas such as electronic voting.
-                    </p>
-                  </div>
+                {!showCamera ? (
+                    <div className="flex flex-col items-center">
+                      <p className="mb-6 text-center text-slate-700">
+                        Take a photo or upload an image to find matches in our database.
+                      </p>
 
-                  <div className="md:w-1/2 text-center">
+                      <div className="flex justify-center space-x-4 mb-8">
+                        <Button
+                            onClick={() => {
+                              setShowCamera(true);
+                              setUploadMode(false);
+                            }}
+                            className="flex items-center bg-indigo-600 hover:bg-indigo-700"
+                        >
+                          <Camera size={18} className="mr-2" />
+                          Use Camera
+                        </Button>
 
-                    <div className="bg-amber-100 p-4 rounded-lg mb-6">
-                      <div className="text-md font-semibold text-amber-800 mb-1">For any organization or province or district who would like to use this platform</div>
-                      <div className="text-sm text-amber-700">
-                        To keep a registry of people in your organization or in your village, you are welcome to contact us.
+                        <Button
+                            onClick={() => {
+                              setShowCamera(true);
+                              setUploadMode(true);
+                            }}
+                            variant="ghost"
+                            className="flex items-center border-gray"
+                        >
+                          <Upload size={18} className="mr-2" />
+                          Upload Photo
+                        </Button>
                       </div>
+
                     </div>
-
-                    {!isLoggedIn && (
-                        <div className="space-y-4 md:space-x-4 ">
-                          <Button
-                              onClick={handleFaceMatch}
-                              className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700"
-                          >
-                            Face Match
-                          </Button>
-                          <Button
-                              onClick={handleRegister}
-                              className="w-full md:w-auto bg-amber-500 hover:bg-amber-600"
-                          >
-                            Register Now
-                          </Button>
-
-                          <div className="mt-2 text-sm text-slate-500">
-                            Already registered? <Link href="/login" className="text-indigo-600 hover:underline">Login</Link>
+                ) : (
+                    <div>
+                      {!uploadMode ? (
+                          <SimpleCameraCapture onCapture={handleCapture} />
+                      ) : (
+                          <div className="text-center">
+                            <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 mb-4">
+                              <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleFileUpload}
+                                  className="hidden"
+                                  id="file-upload"
+                              />
+                              <label
+                                  htmlFor="file-upload"
+                                  className="cursor-pointer flex flex-col items-center justify-center"
+                              >
+                                <Upload size={64} className="text-slate-400 mb-4" />
+                                <span className="text-lg text-slate-600 mb-2">Click to upload a photo</span>
+                                <span className="text-sm text-slate-500">JPG, PNG, etc.</span>
+                              </label>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowCamera(false)}
+                                className="mt-2 border-gray"
+                            >
+                              Cancel
+                            </Button>
                           </div>
-                        </div>
-                    )}
-
-                    {isLoggedIn && (
-                        <div className="space-y-4">
-                          <Button
-                              onClick={() => router.push('/profile')}
-                              className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700"
-                          >
-                            My Profile
-                          </Button>
-                          <Button
-                              onClick={handleFaceMatch}
-                              className="w-full md:w-auto bg-amber-500 hover:bg-amber-600"
-                          >
-                            Face Match
-                          </Button>
-                        </div>
-                    )}
-                  </div>
-                </div>
+                      )}
+                    </div>
+                )}
               </CardContent>
             </Card>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="border-none shadow-md">
-                <CardContent className="p-4">
-                  <h2 className="text-lg font-semibold mb-2 text-indigo-700">PNG Pessbook</h2>
-                  <p className="text-sm text-slate-600">
-                    The main national registry for all PNG citizens. You can self-register by taking a selfie.
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-none shadow-md">
-                <CardContent className="p-4">
-                  <h2 className="text-lg font-semibold mb-2 text-indigo-700">Autonomous Region of Bougainville (ARB) Pessbook</h2>
-                  <p className="text-sm text-slate-600">
-                    Special registry for citizens of the Autonomous Region of Bougainville.
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-none shadow-md">
-                <CardContent className="p-4">
-                  <h2 className="text-lg font-semibold mb-2 text-indigo-700">MKA Pessbook</h2>
-                  <p className="text-sm text-slate-600">
-                    Special registry for the Motu Koitabu Assembly region.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="mt-8 text-center text-sm text-slate-500">
-              <p>Note: Only selfie mode is allowed for personal registration. These three membership datasets are part of our community trial projects and trial photo books can be obtained from us. All new registration will require you agreeing to provide your data and photo, at will.</p>
-              <p className="mt-2">Thank you<br />Project Admin</p>
-            </div>
           </div>
         </Layout>
       </>

@@ -1,8 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
-import { sendVerificationEmail } from '@/lib/email';
+import { verifyToken } from '@/lib/auth';
+import { parseCookies } from 'nookies';
 import { s3Service } from '@/services/s3-service';
 import { rekognitionService } from '@/services/rekognition-service';
 import { convertS3PathToExternalId } from '@/utils/path-conversion';
@@ -15,9 +14,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
+        // Get token from cookies
+        const cookies = parseCookies({ req });
+        const token = cookies.auth_token;
+
+        if (!token) {
+            return res.status(401).json({ message: 'Unauthorized: Not logged in' });
+        }
+
+        // Verify token
+        const decodedToken = verifyToken(token);
+
+        if (!decodedToken) {
+            return res.status(401).json({ message: 'Unauthorized: Invalid token' });
+        }
+
+        // Validate user existence
+        const user = await prisma.user.findUnique({
+            where: { id: decodedToken.userId }
+        });
+
+        if (!user) {
+            return res.status(401).json({ message: 'Unauthorized: User not found' });
+        }
+
+        // Get request data
         const {
-            email,
-            password,
             firstName,
             middleName,
             lastName,
@@ -28,28 +50,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             denomination,
             clan,
             residentialPath,
+            albumId,
             image
         } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Email and password are required' });
+        // Validate required fields
+        if (!firstName || !lastName || !image || !albumId) {
+            return res.status(400).json({ message: 'Missing required fields' });
         }
 
-        if (!firstName || !lastName) {
-            return res.status(400).json({ message: 'First name and last name are required' });
-        }
-
-        if (!image) {
-            return res.status(400).json({ message: 'A profile image is required' });
-        }
-
-        // Check if email already exists
-        const existingUser = await prisma.user.findUnique({
-            where: { email }
+        // Verify album belongs to the user
+        const album = await prisma.album.findFirst({
+            where: {
+                id: albumId,
+                ownerId: user.id
+            }
         });
 
-        if (existingUser) {
-            return res.status(400).json({ message: 'Email already registered' });
+        if (!album) {
+            return res.status(404).json({ message: 'Album not found' });
         }
 
         // Format the person's name for the filename
@@ -57,8 +76,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const timestamp = Date.now();
         const filename = `${timestamp}_${formattedName}.jpg`;
 
-        // Determine the S3 folder path based on residentialPath or default to a users folder
-        let s3FolderPath = 'PNG/Users';
+        // Determine the S3 folder path based on residentialPath or default to PNG collection
+        let s3FolderPath = 'PNG';
         if (residentialPath) {
             // Convert the residential path format to S3 folder format if needed
             s3FolderPath = residentialPath.replace(/:/g, '/');
@@ -81,44 +100,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(500).json({ message: 'Failed to index face in Rekognition' });
         }
 
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Generate verification token
-        const verificationToken = crypto.randomBytes(32).toString('hex');
-
-        // Create user
-        const user = await prisma.user.create({
+        // Create person in database
+        const person = await prisma.person.create({
             data: {
-                email,
-                password: hashedPassword,
                 firstName,
                 middleName,
                 lastName,
                 gender,
                 dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-                profileImageUrl: s3Key,
-                faceId: indexResult.FaceId,
-                residentialPath,
-                verificationToken,
-                isEmailVerified: false,
                 occupation,
                 religion,
                 denomination,
-                clan
+                clan,
+                faceId: indexResult.FaceId,
+                externalImageId,
+                s3ImagePath: s3Key,
+                residentialPath,
+                pathType: 'PNG', // Default to PNG collection as per feedback
+                registeredById: user.id,
+                albumId
             }
         });
 
-        // Send verification email
-        await sendVerificationEmail(email, verificationToken);
-
         return res.status(201).json({
-            message: 'User registered successfully. Please check your email to verify your account.',
-            userId: user.id
+            message: 'Person registered successfully',
+            person
         });
     } catch (error) {
-        console.error('Error in registration API:', error);
-        return res.status(500).json({ message: 'Registration failed' });
+        console.error('Error registering person:', error);
+        return res.status(500).json({ message: 'Error registering person' });
     }
 }

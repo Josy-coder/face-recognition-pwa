@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -27,10 +24,26 @@ model User {
   residentialPath   String? // Full path to residential location
   isEmailVerified   Boolean   @default(false)
   verificationToken String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  role              Role      @default(USER)
-  registeredPeople  Person[] // People registered by this user
+
+  // Additional fields as per feedback
+  occupation   String?
+  religion     String?
+  denomination String?
+  clan         String?
+
+  // Official ID fields
+  nid            String? // National ID
+  electorId      String? // Elector ID
+  passport       String? // Passport number
+  driversLicense String? // Driver's License
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role      Role     @default(USER)
+
+  // Relationships
+  registeredPeople Person[] // People registered by this user
+  personalAlbums   Album[] // User's personal albums
 }
 
 model Admin {
@@ -45,7 +58,7 @@ model Admin {
 }
 
 model Person {
-  id              String       @id @default(cuid())
+  id              String    @id @default(cuid())
   firstName       String
   middleName      String?
   lastName        String?
@@ -54,75 +67,171 @@ model Person {
   faceId          String? // AWS Rekognition Face ID
   externalImageId String? // AWS External Image ID (path format)
   s3ImagePath     String? // S3 path to the image
+
+  // Simplified to use just PNG collection (per feedback)
   residentialPath String? // Full path to residential location
-  contactInfo     String? // Email or phone
-  additionalInfo  Json? // Additional metadata
-  registeredBy    User?        @relation(fields: [registeredById], references: [id])
-  registeredById  String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  collections     Collection[] // Which collections this person belongs to
+
+  // Additional fields as per feedback
+  occupation   String?
+  religion     String?
+  denomination String?
+  clan         String?
+
+  // Official ID fields
+  nid            String? // National ID
+  electorId      String? // Elector ID
+  passport       String? // Passport number
+  driversLicense String? // Driver's License
+
+  // Relationships
+  registeredBy   User?   @relation(fields: [registeredById], references: [id])
+  registeredById String?
+  album          Album?  @relation(fields: [albumId], references: [id])
+  albumId        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Metadata to indicate path type (PNG, ABG, MKA)
+  pathType String? // Store the collection type as metadata
 }
 
-model Collection {
-  id              String   @id @default(cuid())
-  name            String   @unique // e.g., PNG Pess Book, ABG, MKA
-  s3FolderPath    String // Root folder path in S3
-  awsCollectionId String   @unique // AWS Rekognition Collection ID
-  description     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  people          Person[]
+// Personal albums for registered users
+model Album {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  owner       User     @relation(fields: [ownerId], references: [id])
+  ownerId     String
+  people      Person[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerId, name])
 }
 
-// Define location hierarchy types
+// Geo Structure Management
+// Top-level model for PNG, ABG, MKA
+model GeoRegion {
+  id         String      @id @default(cuid())
+  name       String      @unique // PNG, ABG, MKA
+  type       String // Type of region
+  provinces  Province[]
+  regions    Region[] // For ABG
+  mkaRegions MkaRegion[] // For MKA
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+// PNG Structure
 model Province {
-  id           String     @id @default(cuid())
-  name         String
-  s3FolderPath String // Path in S3
-  districts    District[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id          String     @id @default(cuid())
+  name        String
+  geoRegion   GeoRegion  @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  districts   District[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  @@unique([name, s3FolderPath])
+  @@unique([name, geoRegionId])
 }
 
 model District {
-  id           String   @id @default(cuid())
-  name         String
-  s3FolderPath String // Path in S3
-  province     Province @relation(fields: [provinceId], references: [id])
-  provinceId   String
-  llgs         LLG[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  province   Province @relation(fields: [provinceId], references: [id])
+  provinceId String
+  llgs       LLG[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([name, provinceId])
 }
 
 model LLG {
-  id           String   @id @default(cuid())
-  name         String
-  s3FolderPath String // Path in S3
-  district     District @relation(fields: [districtId], references: [id])
-  districtId   String
-  wards        Ward[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  district   District @relation(fields: [districtId], references: [id])
+  districtId String
+  wards      Ward[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([name, districtId])
 }
 
 model Ward {
-  id           String   @id @default(cuid())
-  name         String
-  s3FolderPath String // Path in S3
-  llg          LLG      @relation(fields: [llgId], references: [id])
-  llgId        String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  llg       LLG      @relation(fields: [llgId], references: [id])
+  llgId     String
+  villages  String[] // Store village names as an array
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([name, llgId])
+}
+
+// ABG Structure
+model Region {
+  id          String        @id @default(cuid())
+  name        String
+  geoRegion   GeoRegion     @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  districts   AbgDistrict[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([name, geoRegionId])
+}
+
+model AbgDistrict {
+  id             String         @id @default(cuid())
+  name           String
+  region         Region         @relation(fields: [regionId], references: [id])
+  regionId       String
+  constituencies Constituency[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([name, regionId])
+}
+
+model Constituency {
+  id         String      @id @default(cuid())
+  name       String
+  district   AbgDistrict @relation(fields: [districtId], references: [id])
+  districtId String
+  villages   String[] // Store village names as an array
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([name, districtId])
+}
+
+// MKA Structure
+model MkaRegion {
+  id          String    @id @default(cuid())
+  name        String
+  geoRegion   GeoRegion @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  wards       MkaWard[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([name, geoRegionId])
+}
+
+model MkaWard {
+  id        String    @id @default(cuid())
+  name      String
+  region    MkaRegion @relation(fields: [regionId], references: [id])
+  regionId  String
+  sections  String[] // Store section/village names as an array
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([name, regionId])
 }
 
 enum Role {

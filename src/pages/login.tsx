@@ -164,7 +164,7 @@ export default function LoginPage() {
                                         I have not registered as a member and would like to register for the first time now.
                                     </p>
                                     <Link href="/register">
-                                        <div className="mt-2 bg-amber-500 text-white py-2 rounded-md text-center hover:bg-amber-800 transition-colors">
+                                        <div className="mt-2 bg-amber-500 text-white py-2 rounded-md text-center hover:bg-amber-600 transition-colors">
                                             SIGN UP TODAY
                                         </div>
                                     </Link>

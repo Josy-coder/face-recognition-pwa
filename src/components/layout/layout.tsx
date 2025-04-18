@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
 import dynamic from 'next/dynamic';
-import { Search, User, LogIn, Home, Menu, X, ChevronDown, ShieldAlert } from 'lucide-react';
+import { User, LogIn, Home, Menu, X, ChevronDown, Info, Shield } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
 
 // Dynamically import the PWA prompt component with SSR disabled
@@ -31,6 +31,7 @@ export default function Layout({
         isLoggedIn,
         isAdminLoggedIn,
         userData,
+        adminData,
         checkAuthStatus,
         logout
     } = useAuthStore();
@@ -57,6 +58,9 @@ export default function Layout({
         router.push('/');
     };
 
+    // Determine if the user is authenticated (either as regular user or admin)
+    const isAuthenticated = isLoggedIn || isAdminLoggedIn;
+
     return (
         <div className="min-h-screen flex flex-col bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
             <header className="sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-sm">
@@ -71,46 +75,40 @@ export default function Layout({
                             </Link>
                         </div>
 
-                        {/* Desktop Navigation */}
+                        {/* Desktop Navigation - Simplified as per feedback */}
                         <div className="hidden md:flex items-center space-x-6">
                             <Link href="/" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
                                 <Home size={18} />
                                 <span>Home</span>
                             </Link>
 
-                            <Link href="/match" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                <Search size={18} />
-                                <span>Face Match</span>
+                            <Link href="/about" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                <Info size={18} />
+                                <span>About</span>
                             </Link>
 
                             {isAdminLoggedIn && (
                                 <Link href="/admin" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                    <ShieldAlert size={18} />
+                                    <Shield size={18} />
                                     <span>Admin Panel</span>
                                 </Link>
                             )}
 
-                            {/* Add direct profile link for all logged in users */}
-                            {(isLoggedIn || isAdminLoggedIn) && (
-                                <Link href="/profile" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                    <User size={18} />
-                                    <span>My Profile</span>
-                                </Link>
-                            )}
-
-                            {(isLoggedIn || isAdminLoggedIn) ? (
+                            {isAuthenticated ? (
                                 <div className="relative group">
                                     <button className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
                                         <User size={18} />
                                         <span>
-                                            {userData?.firstName || (isAdminLoggedIn ? 'Admin' : 'Account')}
+                                            {isAdminLoggedIn
+                                                ? (adminData?.firstName || 'Admin')
+                                                : (userData?.firstName || 'Account')}
                                         </span>
                                         <ChevronDown size={16} />
                                     </button>
 
                                     <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg overflow-hidden z-20 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
                                         <div className="py-1">
-                                            {isLoggedIn && !isAdminLoggedIn && (
+                                            {isLoggedIn && (
                                                 <Link href="/profile" className="block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-700">
                                                     My Profile
                                                 </Link>
@@ -125,12 +123,10 @@ export default function Layout({
                                     </div>
                                 </div>
                             ) : (
-                                <div className="flex items-center space-x-3">
-                                    <Link href="/login" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                        <LogIn size={18} />
-                                        <span>Login</span>
-                                    </Link>
-                                </div>
+                                <Link href="/login" className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                    <LogIn size={18} />
+                                    <span>Login</span>
+                                </Link>
                             )}
 
                             {showNewSearch && (
@@ -150,7 +146,7 @@ export default function Layout({
                         </button>
                     </div>
 
-                    {/* Mobile Navigation */}
+                    {/* Mobile Navigation - Simplified menu structure */}
                     {isMobileMenuOpen && (
                         <div className="md:hidden mt-4 pb-4 border-t border-slate-200 dark:border-slate-700">
                             <div className="flex flex-col space-y-3 pt-4">
@@ -159,25 +155,26 @@ export default function Layout({
                                     <span>Home</span>
                                 </Link>
 
-                                <Link href="/match" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
-                                    <Search size={18} />
-                                    <span>Face Match</span>
+                                <Link href="/about" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                    <Info size={18} />
+                                    <span>About</span>
                                 </Link>
 
                                 {isAdminLoggedIn && (
                                     <Link href="/admin" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
-                                        <ShieldAlert size={18} />
+                                        <Shield size={18} />
                                         <span>Admin Panel</span>
                                     </Link>
                                 )}
 
-                                {(isLoggedIn || isAdminLoggedIn) ? (
+                                {isAuthenticated ? (
                                     <>
-                                        {/* Always show profile link regardless of user type */}
-                                        <Link href="/profile" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
-                                            <User size={18} />
-                                            <span>My Profile</span>
-                                        </Link>
+                                        {isLoggedIn && (
+                                            <Link href="/profile" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                                <User size={18} />
+                                                <span>My Profile</span>
+                                            </Link>
+                                        )}
                                         <button
                                             className="flex items-center gap-2 py-2 text-red-600"
                                             onClick={handleLogout}
@@ -187,12 +184,10 @@ export default function Layout({
                                         </button>
                                     </>
                                 ) : (
-                                    <>
-                                        <Link href="/login" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
-                                            <LogIn size={18} />
-                                            <span>Login</span>
-                                        </Link>
-                                    </>
+                                    <Link href="/login" className="flex items-center gap-2 py-2 text-slate-700 dark:text-slate-300">
+                                        <LogIn size={18} />
+                                        <span>Login</span>
+                                    </Link>
                                 )}
 
                                 {showNewSearch && (
