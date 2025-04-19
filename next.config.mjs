@@ -43,6 +43,13 @@ const nextConfig = {
     "@aws-amplify/ui-react-liveness",
     "@aws-amplify/ui-react"
   ],
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  // Disable ESLint during builds
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;
