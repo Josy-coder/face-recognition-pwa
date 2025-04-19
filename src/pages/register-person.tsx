@@ -30,6 +30,7 @@ interface Album {
 
 export default function FaceRegistrationPage() {
     const router = useRouter();
+    const [isAuthChecked, setIsAuthChecked] = useState(false);
     const [currentStep, setCurrentStep] = useState<RegistrationStep>(RegistrationStep.SELECT_ALBUM);
     const [isLoading, setIsLoading] = useState(true);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -52,19 +53,41 @@ export default function FaceRegistrationPage() {
     const [residentialPath, setResidentialPath] = useState('');
 
     // Get auth state from Zustand store
-    const { isLoggedIn } = useAuthStore();
+    const { isLoggedIn, isAdminLoggedIn, checkAuthStatus } = useAuthStore();
 
     // Check if user is logged in
     useEffect(() => {
-        if (!isLoggedIn) {
-            toast.error('Please log in to register people');
-            router.push('/login');
-            return;
-        }
+        const verifyAuth = async () => {
+            try {
+                // First check if we already know the auth status from the store
+                if (isLoggedIn || isAdminLoggedIn) {
+                    setIsAuthChecked(true);
+                    return;
+                }
 
-        // Fetch user's albums
-        fetchAlbums();
-    }, [isLoggedIn, router]);
+                // Otherwise check with the server
+                await checkAuthStatus();
+                setIsAuthChecked(true);
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+                // If there's an error, we'll proceed anyway and let the API calls handle auth issues
+                setIsAuthChecked(true);
+            }
+        };
+
+        verifyAuth();
+    }, [isLoggedIn, isAdminLoggedIn, checkAuthStatus]);
+
+    // Once auth is checked, verify if the user is logged in
+    useEffect(() => {
+        if (isAuthChecked && (!isLoggedIn || !isAdminLoggedIn)) {
+            toast.error('Please log in to register people');
+            router.push('/login?redirect=/register-person');
+        } else if (isAuthChecked && isLoggedIn) {
+            // If authenticated, fetch albums and continue with the normal flow
+            fetchAlbums();
+        }
+    }, [isAuthChecked, isLoggedIn, isAdminLoggedIn, router]);
 
     // Fetch user's albums
     const fetchAlbums = async () => {
@@ -628,6 +651,16 @@ export default function FaceRegistrationPage() {
         }
     };
 
+    if (!isAuthChecked || (isAuthChecked && !isLoggedIn)) {
+        return (
+            <Layout title="Loading..." showHistory={false} showNewSearch={false}>
+                <div className="flex justify-center items-center h-64">
+                    <RefreshCw className="animate-spin h-8 w-8 text-indigo-600" />
+                </div>
+            </Layout>
+        );
+    }
+
     if (isLoading && currentStep === RegistrationStep.SELECT_ALBUM) {
         return (
             <Layout title="Loading..." showHistory={false} showNewSearch={false}>
@@ -637,6 +670,8 @@ export default function FaceRegistrationPage() {
             </Layout>
         );
     }
+
+
 
     return (
         <>

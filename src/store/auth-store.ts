@@ -1,3 +1,6 @@
+// Enhanced Auth Store with better error handling
+// src/store/auth-store.ts
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -51,6 +54,7 @@ interface AuthState {
     userData: UserData | null;
     adminData: AdminData | null;
     isLoading: boolean;
+    authError: string | null;
 
     // Actions
     setUser: (userData: UserData | null) => void;
@@ -59,9 +63,10 @@ interface AuthState {
     setAdminLoggedIn: (status: boolean) => void;
     logout: () => Promise<void>;
     setLoading: (status: boolean) => void;
+    setAuthError: (error: string | null) => void;
 
     // Auth check
-    checkAuthStatus: () => Promise<void>;
+    checkAuthStatus: () => Promise<boolean>;
 }
 
 // Create the store with persist middleware to keep authentication state
@@ -74,6 +79,7 @@ export const useAuthStore = create<AuthState>()(
             userData: null,
             adminData: null,
             isLoading: false,
+            authError: null,
 
             // Actions
             setUser: (userData) => set({ userData }),
@@ -81,9 +87,12 @@ export const useAuthStore = create<AuthState>()(
             setLoggedIn: (status) => set({ isLoggedIn: status }),
             setAdminLoggedIn: (status) => set({ isAdminLoggedIn: status }),
             setLoading: (status) => set({ isLoading: status }),
+            setAuthError: (error) => set({ authError: error }),
 
             logout: async () => {
                 try {
+                    set({ isLoading: true });
+
                     const response = await fetch('/api/auth/logout', {
                         method: 'POST',
                         headers: {
@@ -97,13 +106,18 @@ export const useAuthStore = create<AuthState>()(
                             isLoggedIn: false,
                             isAdminLoggedIn: false,
                             userData: null,
-                            adminData: null
+                            adminData: null,
+                            authError: null
                         });
                     } else {
                         console.error('Logout failed');
+                        set({ authError: 'Logout failed' });
                     }
                 } catch (error) {
                     console.error('Error during logout:', error);
+                    set({ authError: 'Error during logout' });
+                } finally {
+                    set({ isLoading: false });
                 }
             },
 
@@ -114,11 +128,23 @@ export const useAuthStore = create<AuthState>()(
                     setLoggedIn,
                     setAdminLoggedIn,
                     setUser,
-                    setAdmin
+                    setAdmin,
+                    setAuthError
                 } = get();
 
                 try {
                     setLoading(true);
+                    setAuthError(null);
+
+                    // First, check if we already have auth state in localStorage
+                    const { isLoggedIn, isAdminLoggedIn, userData, adminData } = get();
+
+                    // If already logged in and we have user data, skip the API call
+                    if ((isLoggedIn && userData) || (isAdminLoggedIn && adminData)) {
+                        console.log("Using cached auth state:", { isLoggedIn, isAdminLoggedIn });
+                        setLoading(false);
+                        return true;
+                    }
 
                     // First try admin authentication
                     try {
@@ -138,7 +164,7 @@ export const useAuthStore = create<AuthState>()(
                             setUser(null); // Clear any user data
 
                             setLoading(false);
-                            return;
+                            return true;
                         }
                     } catch (adminError) {
                         console.error('Admin auth error:', adminError);
@@ -169,7 +195,7 @@ export const useAuthStore = create<AuthState>()(
                             setAdmin(null); // Clear any admin data
 
                             setLoading(false);
-                            return;
+                            return true;
                         }
                     } catch (userError) {
                         console.error('User auth error:', userError);
@@ -181,14 +207,17 @@ export const useAuthStore = create<AuthState>()(
                     setAdminLoggedIn(false);
                     setUser(null);
                     setAdmin(null);
+                    setLoading(false);
+                    return false;
                 } catch (error) {
                     console.error('Error checking auth status:', error);
                     setLoggedIn(false);
                     setAdminLoggedIn(false);
                     setUser(null);
                     setAdmin(null);
-                } finally {
+                    setAuthError('Failed to verify authentication');
                     setLoading(false);
+                    return false;
                 }
             },
         }),

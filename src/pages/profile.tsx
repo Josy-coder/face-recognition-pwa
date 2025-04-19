@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Button } from '@/components/ui/button';
@@ -79,6 +79,7 @@ export default function ProfilePage() {
     const [editFlowState, setEditFlowState] = useState<EditFlowState>(EditFlowState.IDLE);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [isVerifyingFace, setIsVerifyingFace] = useState(false);
+    const [didInitialFetch, setDidInitialFetch] = useState(false);
 
     // Form state for editing profile
     const [editedUser, setEditedUser] = useState<User | null>(null);
@@ -87,89 +88,96 @@ export default function ProfilePage() {
     // Get auth state from Zustand store
     const { userData, isLoggedIn, isAdminLoggedIn, logout, setUser: setStoreUser } = useAuthStore();
 
-    // Check authentication on mount
-    useEffect(() => {
-        const fetchUserProfile = async () => {
-            try {
-                setIsLoading(true);
+    // Fetch user profile data - memoized to prevent infinite loops
+    const fetchUserProfile = useCallback(async () => {
+        try {
+            setIsLoading(true);
+            console.log("Fetching user profile...");
 
-                // Debug auth state
-                console.log("Auth from store:", {
-                    userData,
-                    isLoggedIn,
-                    isAdminLoggedIn
-                });
+            // Debug auth state
+            console.log("Auth from store:", {
+                userData,
+                isLoggedIn,
+                isAdminLoggedIn
+            });
 
-                // Use auth store to get user data first
-                if (userData && (isLoggedIn || isAdminLoggedIn)) {
-                    // If we already have user data in store, use it
-                    console.log("Using data from store:", userData);
-                    setUser(userData as User);
-                    setEditedUser(userData as User);
+            // Use auth store to get user data first
+            if (userData && (isLoggedIn || isAdminLoggedIn)) {
+                // If we already have user data in store, use it
+                console.log("Using data from store:", userData);
+                setUser(userData as User);
+                setEditedUser(userData as User);
 
-                    if (userData.residentialPath) {
-                        setSelectedLocation(userData.residentialPath);
-                    }
+                if (userData.residentialPath) {
+                    setSelectedLocation(userData.residentialPath);
+                }
 
-                    // Only fetch registered people and albums for regular users, not admins
-                    if (isLoggedIn && !isAdminLoggedIn) {
-                        fetchRegisteredPeople();
-                        fetchAlbums();
-                    }
-                } else {
-                    // Otherwise fetch from API
-                    console.log("About to fetch from API");
-                    try {
-                        const response = await fetch('/api/auth/profile');
-                        console.log("API response status:", response.status);
+                // Only fetch registered people and albums for regular users, not admins
+                if (isLoggedIn && !isAdminLoggedIn) {
+                    await fetchRegisteredPeople();
+                    await fetchAlbums();
+                }
+                setDidInitialFetch(true);
+                setIsLoading(false);
+            } else {
+                // Otherwise fetch from API
+                console.log("Fetching from API");
+                try {
+                    const response = await fetch('/api/auth/profile');
+                    console.log("API response status:", response.status);
 
-                        if (response.ok) {
-                            const data = await response.json();
-                            console.log("API returned user data:", data);
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log("API returned user data:", data);
 
-                            // Update local state
-                            setUser(data.user);
-                            setEditedUser(data.user);
+                        // Update local state
+                        setUser(data.user);
+                        setEditedUser(data.user);
 
-                            // Also update auth store
-                            setStoreUser(data.user);
+                        // Also update auth store
+                        setStoreUser(data.user);
 
-                            if (data.user.residentialPath) {
-                                setSelectedLocation(data.user.residentialPath);
-                            }
-
-                            // Only fetch registered people for regular users, not admins
-                            if (!data.isAdmin) {
-                                fetchRegisteredPeople();
-                                fetchAlbums();
-                            }
-                        } else {
-                            console.log("Response not OK:", await response.text());
-                            setTimeout(() => {
-                                router.push('/login');
-                            }, 500);
+                        if (data.user.residentialPath) {
+                            setSelectedLocation(data.user.residentialPath);
                         }
-                    } catch (fetchError) {
-                        console.error("Fetch specific error:", fetchError);
+
+                        // Only fetch registered people for regular users, not admins
+                        if (!data.isAdmin) {
+                            await fetchRegisteredPeople();
+                            await fetchAlbums();
+                        }
+
+                        setDidInitialFetch(true);
+                        setIsLoading(false);
+                    } else {
+                        console.log("Response not OK:", await response.text());
                         setTimeout(() => {
                             router.push('/login');
                         }, 500);
                     }
+                } catch (fetchError) {
+                    console.error("Fetch specific error:", fetchError);
+                    setTimeout(() => {
+                        router.push('/login');
+                    }, 500);
                 }
-            } catch (error) {
-                console.error('Error fetching profile:', error);
-                toast.error('Failed to load profile');
-
-                setTimeout(() => {
-                    router.push('/login');
-                }, 500);
-            } finally {
-                setIsLoading(false);
             }
-        };
+        } catch (error) {
+            console.error('Error fetching profile:', error);
+            toast.error('Failed to load profile');
 
-        fetchUserProfile();
+            setTimeout(() => {
+                router.push('/login');
+            }, 500);
+        }
     }, [router, setStoreUser, isLoggedIn, isAdminLoggedIn, userData]);
+
+    // Check authentication on mount - runs only once
+    useEffect(() => {
+        if (!didInitialFetch) {
+            fetchUserProfile();
+        }
+    }, [fetchUserProfile, didInitialFetch]);
 
     // Fetch people registered by the user
     const fetchRegisteredPeople = async () => {
@@ -387,7 +395,7 @@ export default function ProfilePage() {
 
     // Navigate to create album page
     const goToCreateAlbum = () => {
-        router.push('/create-album');
+        router.push('/albums/create');
     };
 
     // Get full name
@@ -684,8 +692,7 @@ export default function ProfilePage() {
                                         <Label>Residential Location</Label>
                                         <FolderSelector
                                             onFolderSelect={(folders) => {
-                                                if (folders.length > 0) {
-                                                    setSelectedLocation(folders[0]);
+                                                if (folders.length > 0) {setSelectedLocation(folders[0]);
                                                 }
                                             }}
                                             initialSelected={selectedLocation ? [selectedLocation] : []}

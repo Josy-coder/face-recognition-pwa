@@ -1,23 +1,26 @@
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import Layout from '@/components/layout/layout';
 import LoadingSkeleton from '@/components/loading';
 import { useSearchStore, SearchResult } from '@/store/search-store';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function Results() {
     const [isLoading, setIsLoading] = useState(true);
     const [searchedImage, setSearchedImage] = useState<string | null>(null);
     const [, setSearchedFolders] = useState<string[]>([]);
     const [results, setResults] = useState<SearchResult[]>([]);
-    const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+    const [, setSelectedResult] = useState<SearchResult | null>(null);
     const [highConfidenceMatches, setHighConfidenceMatches] = useState<SearchResult[]>([]);
     const [otherMatches, setOtherMatches] = useState<SearchResult[]>([]);
     const [showAllMatches, setShowAllMatches] = useState(false);
     const [analysisComplete, setAnalysisComplete] = useState(false);
+    const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+    const [detailsPerson, setDetailsPerson] = useState<SearchResult | null>(null);
 
     const { addSearchRecord } = useSearchStore();
 
@@ -25,13 +28,13 @@ export default function Results() {
         // Get data from localStorage
         const storedImage = localStorage.getItem('faceRecog_searchImage');
         let parsedFolders: string[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let storedResults: any[] = [];
 
         try {
             const foldersString = localStorage.getItem('faceRecog_selectedFolders');
             if (foldersString) {
                 parsedFolders = JSON.parse(foldersString);
+                setSearchedFolders(parsedFolders);
             }
 
             const resultsString = localStorage.getItem('faceRecog_searchResults');
@@ -44,7 +47,6 @@ export default function Results() {
 
         if (storedImage) {
             setSearchedImage(storedImage);
-            setSearchedFolders(parsedFolders);
 
             // Simulate API call completion
             setIsLoading(true);
@@ -54,77 +56,16 @@ export default function Results() {
             setTimeout(() => {
                 setAnalysisComplete(true);
 
-                setTimeout(() => {
-                    // Process the results
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const processedResults: SearchResult[] = storedResults.map((match: any, index: number) => {
-                        // Use the displayName if available, or extract from ExternalImageId
-                        let name = match.displayName || 'Unknown Person';
-
-                        // Build details object with folder path information
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const details: any = {
-                            path: match.folder || 'Unknown',
-                            title: 'Unknown Position',
-                            department: 'Unknown Department',
-                            hasUserAccount: match.hasUserAccount || false
-                        };
-
-                        // If we have personInfo, use it
-                        if (match.personInfo) {
-                            name = match.personInfo.name || name;
-
-                            // Extract any additional details
-                            if (typeof match.personInfo === 'object') {
-                                Object.entries(match.personInfo).forEach(([key, value]) => {
-                                    if (key !== 'name' && key !== 's3Key' && key !== 's3Folder') {
-                                        details[key] = value;
-                                    }
-                                });
-                            }
-                        }
-
-                        // Default image is a placeholder if not provided by the backend
-                        const imageSrc = match.imageSrc || '/profile-placeholder.jpg';
-
-                        return {
-                            id: match.FaceId || `result-${index}`,
-                            name: name,
-                            imageSrc: imageSrc,
-                            matchConfidence: match.Similarity || 0,
-                            details: details
-                        };
-                    });
-
-                    // Sort by confidence
-                    processedResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
-
-                    // Split results into high confidence (98%+) and others
-                    const highMatches = processedResults.filter(result => result.matchConfidence >= 98);
-                    const otherMatches = processedResults.filter(result => result.matchConfidence < 98);
-
-                    setResults(processedResults);
-                    setHighConfidenceMatches(highMatches);
-                    setOtherMatches(otherMatches);
-
-                    // Set the first high confidence match as selected, if any
-                    if (highMatches.length > 0) {
-                        setSelectedResult(highMatches[0]);
-                    } else if (processedResults.length > 0) {
-                        setSelectedResult(processedResults[0]);
+                setTimeout(async () => {
+                    // Enhanced process for results - enrich with database information
+                    try {
+                        const enhancedResults = await enhanceResultsWithPersonInfo(storedResults);
+                        processResults(enhancedResults, parsedFolders);
+                    } catch (error) {
+                        console.error('Error enhancing results:', error);
+                        // Fallback to basic processing if enhancement fails
+                        processResults(storedResults, parsedFolders);
                     }
-
-                    // Add to search history
-                    addSearchRecord({
-                        id: Date.now().toString(),
-                        imageSrc: storedImage,
-                        folder: parsedFolders.join(', ') || 'All folders',
-                        includeSubfolders: true,
-                        timestamp: new Date().toISOString(),
-                        results: processedResults,
-                    });
-
-                    setIsLoading(false);
                 }, 500);
             }, 1000);
         } else {
@@ -132,6 +73,160 @@ export default function Results() {
             setIsLoading(false);
         }
     }, [addSearchRecord]);
+
+    // New function to enhance results with person information from database
+    const enhanceResultsWithPersonInfo = async (rawResults: any[]): Promise<any[]> => {
+        if (!rawResults || rawResults.length === 0) return [];
+
+        try {
+            // Extract face IDs to look up
+            const faceIds = rawResults.filter(result => result.Face?.FaceId).map(result => result.Face.FaceId);
+
+            if (faceIds.length === 0) return rawResults;
+
+            // Call API to get person details for these faces
+            const response = await fetch('/api/people/details-by-faceids', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ faceIds }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch person details');
+            }
+
+            const data = await response.json();
+            const personDetailsMap = new Map();
+
+            // Create a map of faceId to person details
+            if (data.people && Array.isArray(data.people)) {
+                data.people.forEach((person: any) => {
+                    if (person.faceId) {
+                        personDetailsMap.set(person.faceId, person);
+                    }
+                });
+            }
+
+            // Enhance raw results with person details
+            return rawResults.map(result => {
+                const faceId = result.Face?.FaceId || result.FaceId;
+                const personInfo = personDetailsMap.get(faceId);
+
+                if (personInfo) {
+                    return {
+                        ...result,
+                        firstName: personInfo.firstName || '',
+                        middleName: personInfo.middleName || '',
+                        lastName: personInfo.lastName || '',
+                        name: `${personInfo.firstName || ''} ${personInfo.middleName || ''} ${personInfo.lastName || ''}`.trim(),
+                        personInfo
+                    };
+                }
+
+                // If no person info found, try to extract name from ExternalImageId
+                if (result.Face?.ExternalImageId || result.ExternalImageId) {
+                    const externalId = result.Face?.ExternalImageId || result.ExternalImageId;
+                    // Extract folder path and name from external ID
+                    const parts = externalId.split(':');
+                    const name = parts[parts.length - 1].replace(/\.jpg$/i, '').replace(/_/g, ' ');
+
+                    return {
+                        ...result,
+                        name,
+                        firstName: name, // Best guess without more info
+                        middleName: '',
+                        lastName: '',
+                        folder: parts.slice(0, -1).join('/').replace(/_/g, ' ')
+                    };
+                }
+
+                return {
+                    ...result,
+                    name: 'Unknown Person',
+                    firstName: '',
+                    middleName: '',
+                    lastName: ''
+                };
+            });
+        } catch (error) {
+            console.error('Error enhancing results:', error);
+            return rawResults;
+        }
+    };
+
+    // Process the enhanced results
+    const processResults = (enhancedResults: any[], folders: string[]) => {
+        // Convert to SearchResult format
+        const processedResults: SearchResult[] = enhancedResults.map((match, index) => {
+            // Use the display name or name we extracted during enhancement
+            const name = match.name || 'Unknown Person';
+
+            // Build details object with folder path information
+            const details: any = {
+                path: match.folder || 'Unknown',
+                title: 'Unknown Position',
+                department: 'Unknown Department',
+                hasUserAccount: match.hasUserAccount || false
+            };
+
+            // If we have personInfo, include it in details
+            if (match.personInfo) {
+                // Extract any additional details
+                if (typeof match.personInfo === 'object') {
+                    Object.entries(match.personInfo).forEach(([key, value]) => {
+                        if (key !== 'name' && key !== 's3Key' && key !== 's3Folder') {
+                            details[key] = value;
+                        }
+                    });
+                }
+            }
+
+            // Default image is a placeholder if not provided
+            const imageSrc = match.imageSrc || '/profile-placeholder.jpg';
+
+            return {
+                id: match.Face?.FaceId || match.FaceId || `result-${index}`,
+                name: name,
+                firstName: match.firstName || '',
+                middleName: match.middleName || '',
+                lastName: match.lastName || '',
+                imageSrc: imageSrc,
+                matchConfidence: match.Similarity || 0,
+                details: details
+            };
+        });
+
+        // Sort by confidence
+        processedResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
+
+        // Split results into high confidence (98%+) and others
+        const highMatches = processedResults.filter(result => result.matchConfidence >= 98);
+        const otherMatches = processedResults.filter(result => result.matchConfidence < 98);
+
+        setResults(processedResults);
+        setHighConfidenceMatches(highMatches);
+        setOtherMatches(otherMatches);
+
+        // Set the first high confidence match as selected, if any
+        if (highMatches.length > 0) {
+            setSelectedResult(highMatches[0]);
+        } else if (processedResults.length > 0) {
+            setSelectedResult(processedResults[0]);
+        }
+
+        // Add to search history
+        const searchRecord = {
+            imageSrc: searchedImage!,
+            folder: folders.join(', ') || 'All folders',
+            includeSubfolders: true,
+            results: processedResults,
+        };
+
+        addSearchRecord(searchRecord);
+        setIsLoading(false);
+    };
 
     // Toggle showing all matches
     const toggleShowAllMatches = () => {
@@ -153,7 +248,23 @@ export default function Results() {
 
     // View details of a person
     const viewPersonDetails = (result: SearchResult) => {
-        setSelectedResult(result);
+        setDetailsPerson(result);
+        setShowDetailsDialog(true);
+    };
+
+    // Format a person's name based on available parts
+    const formatPersonName = (person: SearchResult) => {
+        if (person.firstName || person.middleName || person.lastName) {
+            const parts = [
+                person.firstName || '',
+                person.middleName || '',
+                person.lastName || ''
+            ].filter(part => part !== '');
+
+            return parts.join(' ');
+        }
+
+        return person.name || 'Unknown Person';
     };
 
     if (isLoading) {
@@ -342,91 +453,6 @@ export default function Results() {
                 </div>
 
                 <div className="md:col-span-2 space-y-6">
-                    {/* Selected Match Detail */}
-                    {selectedResult && (
-                        <Card className="overflow-hidden border-slate-200 dark:border-slate-700">
-                            <div className={`p-4 border-b border-slate-200 dark:border-slate-700 ${selectedResult.matchConfidence >= 98 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-indigo-50 dark:bg-indigo-900/20'}`}>
-                                <div className="flex items-center justify-between">
-                                    <h2 className="font-semibold text-lg">Match Details</h2>
-                                    <Badge
-                                        className={`${getConfidenceLevelColor(selectedResult.matchConfidence)} text-white`}
-                                    >
-                                        {selectedResult.matchConfidence.toFixed(1)}% Match
-                                    </Badge>
-                                </div>
-                            </div>
-
-                            <CardContent className="p-6">
-                                <div className="flex flex-col md:flex-row gap-6">
-                                    <div className="w-full md:w-1/3">
-                                        <div className="aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 mb-4">
-                                            <img
-                                                src={selectedResult.imageSrc}
-                                                alt={selectedResult.name}
-                                                className="object-cover w-full h-full"
-                                                onError={(e) => {
-                                                    // Fallback to placeholder if image fails to load
-                                                    (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
-                                                }}
-                                            />
-                                        </div>
-                                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Match confidence</p>
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Progress
-                                                value={selectedResult.matchConfidence}
-                                                className="h-2"
-                                            />
-                                            <span className="text-sm font-medium">{selectedResult.matchConfidence.toFixed(1)}%</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="w-full md:w-2/3 space-y-4">
-                                        <div>
-                                            <h3 className="text-2xl font-bold">{selectedResult.name}</h3>
-                                            <p className="text-slate-600 dark:text-slate-400">{selectedResult.details?.title}</p>
-                                        </div>
-
-                                        <Tabs defaultValue="details">
-                                            <TabsList>
-                                                <TabsTrigger value="details">Details</TabsTrigger>
-                                                <TabsTrigger value="location">Location</TabsTrigger>
-                                            </TabsList>
-
-                                            <TabsContent value="details" className="space-y-4 pt-4">
-                                                {selectedResult.details && Object.entries(selectedResult.details)
-                                                    .filter(([key]) => key !== 'title' && key !== 'path' && key !== 'hasUserAccount')
-                                                    .map(([key, value]) => (
-                                                        <div key={key} className="grid grid-cols-3 gap-1">
-                                                            <div className="text-sm font-medium text-slate-600 dark:text-slate-400 capitalize">
-                                                                {key.replace(/([A-Z])/g, ' $1').trim()}
-                                                            </div>
-                                                            <div className="col-span-2 text-sm">
-                                                                {String(value)}
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                }
-                                            </TabsContent>
-
-                                            <TabsContent value="location" className="pt-4">
-                                                <div className="space-y-4">
-                                                    <div className="grid grid-cols-3 gap-1">
-                                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                                                            Path
-                                                        </div>
-                                                        <div className="col-span-2 text-sm">
-                                                            {selectedResult.details.path}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </TabsContent>
-                                        </Tabs>
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
-
                     {/* Matches List */}
                     <div>
                         <h3 className="font-semibold text-lg mb-4">
@@ -436,19 +462,14 @@ export default function Results() {
                             {(showAllMatches ? results : highConfidenceMatches).map(result => (
                                 <Card
                                     key={result.id}
-                                    className={`
-                                      overflow-hidden transition-colors cursor-pointer 
-                                      ${selectedResult?.id === result.id ? 'border-indigo-500 dark:border-indigo-400' : 'border-slate-200 dark:border-slate-700'} 
-                                      hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md
-                                    `}
-                                    onClick={() => viewPersonDetails(result)}
+                                    className="overflow-hidden transition-colors cursor-pointer border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md"
                                 >
                                     <CardContent className="p-4">
                                         <div className="flex items-center gap-4">
                                             <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800 flex-shrink-0">
                                                 <img
                                                     src={result.imageSrc}
-                                                    alt={result.name}
+                                                    alt={formatPersonName(result)}
                                                     className="w-full h-full object-cover"
                                                     onError={(e) => {
                                                         // Fallback to placeholder if image fails to load
@@ -459,7 +480,7 @@ export default function Results() {
 
                                             <div className="flex-grow">
                                                 <div className="flex items-center justify-between">
-                                                    <h4 className="font-medium">{result.name}</h4>
+                                                    <h4 className="font-medium">{formatPersonName(result)}</h4>
                                                     <Badge
                                                         className={`${getConfidenceLevelColor(result.matchConfidence)} text-white`}
                                                     >
@@ -467,13 +488,9 @@ export default function Results() {
                                                     </Badge>
                                                 </div>
                                                 <Button
-                                                    variant="ghost"
                                                     size="sm"
-                                                    className="text-indigo-600 p-0 h-auto mt-1"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        viewPersonDetails(result);
-                                                    }}
+                                                    className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                                    onClick={() => viewPersonDetails(result)}
                                                 >
                                                     View Details
                                                 </Button>
@@ -497,6 +514,73 @@ export default function Results() {
                     </div>
                 </div>
             </div>
+
+            {/* Person Details Dialog */}
+            <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+                <DialogContent className="sm:max-w-md bg-slate-100 dark:bg-slate-800 text-black dark:text-white">
+                    <DialogHeader>
+                        <DialogTitle>Person Details</DialogTitle>
+                    </DialogHeader>
+                    {detailsPerson && (
+                        <div className="space-y-4 py-4">
+                            <div className="flex items-center gap-4">
+                                <div className="w-20 h-20 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+                                    <img
+                                        src={detailsPerson.imageSrc}
+                                        alt={formatPersonName(detailsPerson)}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).src = '/profile-placeholder.jpg';
+                                        }}
+                                    />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold">{formatPersonName(detailsPerson)}</h3>
+                                    <Badge className={`${getConfidenceLevelColor(detailsPerson.matchConfidence)} text-white mt-1`}>
+                                        {detailsPerson.matchConfidence.toFixed(1)}% Match
+                                    </Badge>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-4">
+                                <h4 className="font-medium mb-3">Personal Information</h4>
+                                <div className="space-y-2">
+                                    <div className="grid grid-cols-3 gap-1">
+                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                            First Name
+                                        </div>
+                                        <div className="col-span-2 text-sm">
+                                            {detailsPerson.firstName || 'Not available'}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-1">
+                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                            Middle Name
+                                        </div>
+                                        <div className="col-span-2 text-sm">
+                                            {detailsPerson.middleName || 'Not available'}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-1">
+                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                            Last Name
+                                        </div>
+                                        <div className="col-span-2 text-sm">
+                                            {detailsPerson.lastName || 'Not available'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4">
+                                <div className="text-xs text-slate-500">
+                                    Location: {detailsPerson.details.path || 'Not available'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </Layout>
     );
 }

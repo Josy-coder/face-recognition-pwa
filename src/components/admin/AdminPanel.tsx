@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, Plus, Trash2, RefreshCw, Upload, FileText, FolderOpen } from 'lucide-react';
+import {AlertCircle, Plus, Trash2, RefreshCw, Upload, FileText, FolderOpen, Map} from 'lucide-react';
 import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
 import CameraCapture from '@/components/capture/CameraCapture';
@@ -723,6 +723,17 @@ const AdminPanel = () => {
                         <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                         Refresh
                     </Button>
+                    <div className="p-4 space-y-2">
+                        <h3 className="font-medium text-sm text-slate-500 uppercase">Configuration</h3>
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-start text-slate-700 hover:text-indigo-600 hover:bg-indigo-50"
+                            onClick={() => router.push('/admin/geo-management')}
+                        >
+                            <Map className="mr-2 h-5 w-5" />
+                            Geographic Management
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Tabs value={activeTab} onValueChange={handleTabChange}>

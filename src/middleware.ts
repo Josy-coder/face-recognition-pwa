@@ -35,14 +35,20 @@ export async function middleware(req: NextRequest) {
         return NextResponse.next();
     }
 
-    // For user authentication on regular pages
-    if (path.startsWith('/profile') || path.startsWith('/api/auth/profile')) {
+    // For user authentication on protected pages and API routes
+    if (path.startsWith('/profile') ||
+        path.startsWith('/register-person') ||
+        path.startsWith('/api/auth/profile') ||
+        path.startsWith('/api/people') ||
+        path.startsWith('/api/albums')) {
+
         const userToken = req.cookies.get('auth_token')?.value;
         const adminToken = req.cookies.get('admin_token')?.value;
 
-        // Check for either token type - allow profile access with either
+        // Check for either token type - allow access with either
         if (!userToken && !adminToken && !path.startsWith('/api/')) {
             const url = new URL('/login', req.url);
+            url.searchParams.set('redirect', path); // Save the intended destination
             return NextResponse.redirect(url);
         }
 
@@ -69,7 +75,6 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
 }
 
-// Configure which paths this middleware will run on
 export const config = {
-    matcher: ['/admin/:path*', '/api/:path*', '/profile/:path*'],
+    matcher: ['/admin/:path*', '/api/:path*', '/profile/:path*', '/register-person', '/albums/:path*'],
 };
