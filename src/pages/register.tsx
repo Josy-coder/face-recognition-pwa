@@ -345,14 +345,21 @@ export default function AccountRegistrationPage() {
                                     <h3 className="font-medium">PNG Residential Address</h3>
                                     <div className="space-y-2 mt-2">
                                         <FolderSelector
-                                            onFolderSelect={(folders) => {
-                                                if (folders.length > 0) {
-                                                    setResidentialPath(folders[0]);
+                                            onSelect={(path) => {
+                                                if (path) {
+                                                    setResidentialPath(path);
                                                 }
                                             }}
-                                            initialSelected={residentialPath ? [residentialPath] : []}
-                                            minLevel={2}
                                         />
+
+                                        {residentialPath && (
+                                            <div className="mt-2 text-sm text-slate-600">
+                                                <span className="font-medium">Selected location: </span>
+                                                <span className="italic">{residentialPath}</span>
+                                            </div>
+                                        )}
+
+
                                         <p className="text-xs text-slate-500">
                                             Please select your location down to at least the district level.
                                         </p>
