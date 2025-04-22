@@ -39,7 +39,7 @@ class RekognitionService {
         try {
             console.log(`Searching for faces in collection ${collectionId} with threshold ${faceMatchThreshold}`);
 
-            const response = await fetch('/api/search-faces', {
+            const response = await fetch('api/search-faces', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -78,7 +78,7 @@ class RekognitionService {
         similarityThreshold = 70
     ) {
         try {
-            const response = await fetch('/api/compare-faces', {
+            const response = await fetch('api/compare-faces', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -112,7 +112,7 @@ class RekognitionService {
         similarityThreshold = 70
     ) {
         try {
-            const response = await fetch('/api/compare-face-to-id', {
+            const response = await fetch('api/compare-face-to-id', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -151,7 +151,7 @@ class RekognitionService {
      */
     async getCollections(authHeader: string) {
         try {
-            const response = await fetch('/api/collections', {
+            const response = await fetch('api/collections', {
                 headers: {
                     'Authorization': authHeader,
                 },
@@ -170,7 +170,8 @@ class RekognitionService {
     }
 
     /**
-     * Index face in collection
+     * Index face in collection - FIXED VERSION using direct api call to index-faces
+     * Removed leading slash and using properly formatted URL
      */
     async indexFace(
         image: string,
@@ -178,7 +179,20 @@ class RekognitionService {
         externalImageId: string
     ) {
         try {
-            const response = await fetch('/api/index-face', {
+            console.log(`Indexing face in collection ${collectionId} with externalImageId ${externalImageId}`);
+
+            // Validate image format (should be base64)
+            if (!image.startsWith('data:image/')) {
+                console.error('Invalid image format');
+                return null;
+            }
+
+            // Use relative URL without leading slash
+            const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+            const apiUrl = `${baseUrl}/api/index-faces`;
+
+            console.log(`Making API request to: ${apiUrl}`);
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -192,45 +206,15 @@ class RekognitionService {
 
             if (!response.ok) {
                 const error = await response.json();
+                console.error('Error response from API:', error);
                 throw new Error(error.message || 'Error indexing face');
             }
 
-            return await response.json();
+            const result = await response.json();
+            console.log('Face indexing result:', result);
+            return result;
         } catch (error) {
             console.error('Error indexing face:', error);
-            toast.error('Failed to index face');
-            return null;
-        }
-    }
-
-    /**
-     * Index face from image data
-     */
-    async indexFaceFromImage(
-        image: string,
-        collectionId: string,
-        externalImageId: string
-    ) {
-        try {
-            const response = await fetch('/api/collections/' + collectionId + '/faces', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    image,
-                    externalImageId
-                }),
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || 'Error indexing face');
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error('Error indexing face from image:', error);
             toast.error('Failed to index face');
             return null;
         }
@@ -244,7 +228,11 @@ class RekognitionService {
         faceIds: string[]
     ) {
         try {
-            const response = await fetch(`/api/collections/${collectionId}/faces`, {
+            // No leading slash in URL
+            const url = `api/collections/${encodeURIComponent(collectionId)}/faces`;
+            console.log(`Making delete API request to: ${url}`);
+
+            const response = await fetch(url, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',

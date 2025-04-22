@@ -28,7 +28,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             denomination,
             clan,
             residentialPath,
-            image
+            image,
+            collections = ['PNG'] // Default collection
         } = req.body;
 
         if (!email || !password) {
@@ -64,6 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             s3FolderPath = residentialPath.replace(/:/g, '/');
         }
 
+        console.log(`Uploading image to S3 path: ${s3FolderPath}/${filename}`);
+
         // Upload image to S3
         const s3Key = await s3Service.uploadImage(image, s3FolderPath, filename);
 
@@ -71,14 +74,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(500).json({ message: 'Failed to upload image to S3' });
         }
 
+        console.log(`Image uploaded to S3 successfully. S3 Key: ${s3Key}`);
+
         // Create the external image ID for Rekognition
         const externalImageId = convertS3PathToExternalId(s3Key);
+        console.log(`Generated externalImageId: ${externalImageId}`);
 
-        // Index face in Rekognition
-        const indexResult = await rekognitionService.indexFace('PNG', s3Key, externalImageId);
+        // Default faceId
+        let faceId = null;
 
-        if (!indexResult || !indexResult.FaceId) {
-            return res.status(500).json({ message: 'Failed to index face in Rekognition' });
+        // Using the primary collection (usually PNG)
+        const primaryCollection = collections[0] || 'PNG';
+
+        // Try to index the face in the collection
+        try {
+            console.log(`Attempting to index face in ${primaryCollection} collection`);
+
+            const indexResult = await rekognitionService.indexFace(
+                image,
+                primaryCollection,
+                externalImageId
+            );
+
+            if (indexResult && indexResult.faceRecords && indexResult.faceRecords.length > 0) {
+                faceId = indexResult.faceRecords[0].Face?.FaceId;
+                console.log(`Face indexed successfully. Face ID: ${faceId}`);
+            } else {
+                console.warn("No face records returned from indexing");
+            }
+        } catch (error) {
+            console.error("Error indexing face:", error);
+            // Continue with registration even if face indexing fails
         }
 
         // Hash password
@@ -99,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 gender,
                 dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
                 profileImageUrl: s3Key,
-                faceId: indexResult.FaceId,
+                faceId, // This could be null if face indexing failed
                 residentialPath,
                 verificationToken,
                 isEmailVerified: false,
@@ -110,15 +136,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
         });
 
+        console.log(`User created successfully. User ID: ${user.id}`);
+
         // Send verification email
         await sendVerificationEmail(email, verificationToken);
+        console.log(`Verification email sent to ${email}`);
 
+        // For debugging: Let's add face info to the response
         return res.status(201).json({
-            message: 'User registered successfully. Please check your email to verify your account.',
-            userId: user.id
+            message: faceId ?
+                'User registered successfully. Please check your email to verify your account.' :
+                'User registered with image but without face recognition. Please check your email to verify your account.',
+            userId: user.id,
+            faceIndexed: !!faceId
         });
     } catch (error) {
         console.error('Error in registration API:', error);
-        return res.status(500).json({ message: 'Registration failed' });
+        return res.status(500).json({
+            message: 'Registration failed',
+            error: (error as Error).message
+        });
     }
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import Layout from '@/components/layout/layout';
 import { Camera, Upload } from 'lucide-react';
 import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
@@ -105,9 +105,6 @@ export default function HomePage() {
         <Layout title="" showHistory={false} showNewSearch={false}>
           <div className="max-w-4xl mx-auto">
             <Card className="border-none mb-8">
-              <CardHeader className="text-center bg-slate-50">
-                <CardTitle className="text-2xl">Match my face or a photo</CardTitle>
-              </CardHeader>
               <CardContent className="p-6">
                 {!showCamera ? (
                     <div className="flex flex-col items-center">

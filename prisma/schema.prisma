@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,48 +10,244 @@ datasource db {
 model User {
   id                String    @id @default(cuid())
   email             String    @unique
-  password          String // Hashed password
+  password          String
   firstName         String?
   middleName        String?
   lastName          String?
   gender            String?
   dateOfBirth       DateTime?
   profileImageUrl   String?
-  faceId            String? // AWS Rekognition Face ID (if available)
-  residentialPath   String? // Full path to residential location
+  faceId            String?
+  residentialPath   String?
   isEmailVerified   Boolean   @default(false)
   verificationToken String?
-
-  // Additional fields as per feedback
-  occupation   String?
-  religion     String?
-  denomination String?
-  clan         String?
-
-  // Official ID fields
-  nid            String? // National ID
-  electorId      String? // Elector ID
-  passport       String? // Passport number
-  driversLicense String? // Driver's License
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  role      Role     @default(USER)
-
-  // Relationships
-  registeredPeople Person[] // People registered by this user
-  personalAlbums   Album[] // User's personal albums
+  occupation        String?
+  religion          String?
+  denomination      String?
+  clan              String?
+  nid               String?
+  electorId         String?
+  passport          String?
+  driversLicense    String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  role              Role      @default(USER)
+  registeredPeople  Person[]
+  personalAlbums    Album[]
 }
 
 model Admin {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String // Hashed password
-  firstName String?
-  lastName  String?
-  role      Role     @default(ADMIN)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String                @id @default(cuid())
+  email         String                @unique
+  password      String
+  firstName     String?
+  lastName      String?
+  role          Role                  @default(ADMIN)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  nodeMovements NodeMovementHistory[]
+}
+
+model GeoRegion {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  type       String
+  provinces  Province[]
+  regions    Region[]
+  mkaRegions MkaRegion[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  order      Int         @default(0)
+  level      Int         @default(0)
+}
+
+model Province {
+  id          String     @id @default(cuid())
+  name        String
+  code        String?
+  geoRegion   GeoRegion  @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  districts   District[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  order       Int        @default(0)
+  path        String     @unique
+  level       Int        @default(1)
+
+  @@unique([name, geoRegionId])
+  @@index([path])
+}
+
+model District {
+  id         String   @id @default(cuid())
+  name       String
+  code       String?
+  province   Province @relation(fields: [provinceId], references: [id])
+  provinceId String
+  llgs       LLG[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  order      Int      @default(0)
+  path       String   @unique
+  level      Int      @default(2)
+
+  @@unique([name, provinceId])
+  @@index([path])
+}
+
+model LLG {
+  id         String   @id @default(cuid())
+  name       String
+  code       String?
+  district   District @relation(fields: [districtId], references: [id])
+  districtId String
+  wards      Ward[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  order      Int      @default(0)
+  path       String   @unique
+  level      Int      @default(3)
+
+  @@unique([name, districtId])
+  @@index([path])
+}
+
+model Ward {
+  id        String     @id @default(cuid())
+  name      String
+  code      String?
+  llg       LLG        @relation(fields: [llgId], references: [id])
+  llgId     String
+  villages  String[]
+  locations Location[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  order     Int        @default(0)
+  path      String     @unique
+  level     Int        @default(4)
+
+  @@unique([name, llgId])
+  @@index([path])
+}
+
+model Region {
+  id          String        @id @default(cuid())
+  name        String
+  code        String?
+  geoRegion   GeoRegion     @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  districts   AbgDistrict[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  order       Int           @default(0)
+  path        String        @unique
+  level       Int           @default(1)
+
+  @@unique([name, geoRegionId])
+  @@index([path])
+}
+
+model AbgDistrict {
+  id             String         @id @default(cuid())
+  name           String
+  code           String?
+  region         Region         @relation(fields: [regionId], references: [id])
+  regionId       String
+  constituencies Constituency[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  order          Int            @default(0)
+  path           String         @unique
+  level          Int            @default(2)
+
+  @@unique([name, regionId])
+  @@index([path])
+}
+
+model Constituency {
+  id         String      @id @default(cuid())
+  name       String
+  code       String?
+  district   AbgDistrict @relation(fields: [districtId], references: [id])
+  districtId String
+  villages   String[]
+  locations  Location[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  order      Int         @default(0)
+  path       String      @unique
+  level      Int         @default(3)
+
+  @@unique([name, districtId])
+  @@index([path])
+}
+
+model MkaRegion {
+  id          String    @id @default(cuid())
+  name        String
+  code        String?
+  geoRegion   GeoRegion @relation(fields: [geoRegionId], references: [id])
+  geoRegionId String
+  wards       MkaWard[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  order       Int       @default(0)
+  path        String    @unique
+  level       Int       @default(1)
+
+  @@unique([name, geoRegionId])
+  @@index([path])
+}
+
+model MkaWard {
+  id        String     @id @default(cuid())
+  name      String
+  code      String?
+  region    MkaRegion  @relation(fields: [regionId], references: [id])
+  regionId  String
+  sections  String[]
+  locations Location[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  order     Int        @default(0)
+  path      String     @unique
+  level     Int        @default(2)
+
+  @@unique([name, regionId])
+  @@index([path])
+}
+
+model Location {
+  id             String        @id @default(cuid())
+  name           String
+  code           String?
+  ward           Ward?         @relation(fields: [wardId], references: [id])
+  wardId         String?
+  constituency   Constituency? @relation(fields: [constituencyId], references: [id])
+  constituencyId String?
+  mkaWard        MkaWard?      @relation(fields: [mkaWardId], references: [id])
+  mkaWardId      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  order          Int           @default(0)
+  path           String        @unique
+  level          Int
+
+  @@index([path])
+}
+
+model NodeMovementHistory {
+  id          String   @id @default(cuid())
+  nodeId      String
+  nodeType    String
+  oldParentId String
+  newParentId String
+  movedAt     DateTime @default(now())
+  movedBy     Admin    @relation(fields: [adminId], references: [id])
+  adminId     String
+  oldPath     String
+  newPath     String
+  createdAt   DateTime @default(now())
 }
 
 model Person {
@@ -64,39 +257,27 @@ model Person {
   lastName        String?
   gender          String?
   dateOfBirth     DateTime?
-  faceId          String? // AWS Rekognition Face ID
-  externalImageId String? // AWS External Image ID (path format)
-  s3ImagePath     String? // S3 path to the image
-
-  // Simplified to use just PNG collection (per feedback)
-  residentialPath String? // Full path to residential location
-
-  // Additional fields as per feedback
-  occupation   String?
-  religion     String?
-  denomination String?
-  clan         String?
-
-  // Official ID fields
-  nid            String? // National ID
-  electorId      String? // Elector ID
-  passport       String? // Passport number
-  driversLicense String? // Driver's License
-
-  // Relationships
-  registeredBy   User?   @relation(fields: [registeredById], references: [id])
-  registeredById String?
-  album          Album?  @relation(fields: [albumId], references: [id])
-  albumId        String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Metadata to indicate path type (PNG, ABG, MKA)
-  pathType String? // Store the collection type as metadata
+  faceId          String?
+  externalImageId String?
+  s3ImagePath     String?
+  residentialPath String?
+  occupation      String?
+  religion        String?
+  denomination    String?
+  clan            String?
+  nid             String?
+  electorId       String?
+  passport        String?
+  driversLicense  String?
+  registeredBy    User?     @relation(fields: [registeredById], references: [id])
+  registeredById  String?
+  album           Album?    @relation(fields: [albumId], references: [id])
+  albumId         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  pathType        String?
 }
 
-// Personal albums for registered users
 model Album {
   id          String   @id @default(cuid())
   name        String
@@ -108,130 +289,6 @@ model Album {
   updatedAt   DateTime @updatedAt
 
   @@unique([ownerId, name])
-}
-
-// Geo Structure Management
-// Top-level model for PNG, ABG, MKA
-model GeoRegion {
-  id         String      @id @default(cuid())
-  name       String      @unique // PNG, ABG, MKA
-  type       String // Type of region
-  provinces  Province[]
-  regions    Region[] // For ABG
-  mkaRegions MkaRegion[] // For MKA
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-}
-
-// PNG Structure
-model Province {
-  id          String     @id @default(cuid())
-  name        String
-  geoRegion   GeoRegion  @relation(fields: [geoRegionId], references: [id])
-  geoRegionId String
-  districts   District[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  @@unique([name, geoRegionId])
-}
-
-model District {
-  id         String   @id @default(cuid())
-  name       String
-  province   Province @relation(fields: [provinceId], references: [id])
-  provinceId String
-  llgs       LLG[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([name, provinceId])
-}
-
-model LLG {
-  id         String   @id @default(cuid())
-  name       String
-  district   District @relation(fields: [districtId], references: [id])
-  districtId String
-  wards      Ward[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([name, districtId])
-}
-
-model Ward {
-  id        String   @id @default(cuid())
-  name      String
-  llg       LLG      @relation(fields: [llgId], references: [id])
-  llgId     String
-  villages  String[] // Store village names as an array
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([name, llgId])
-}
-
-// ABG Structure
-model Region {
-  id          String        @id @default(cuid())
-  name        String
-  geoRegion   GeoRegion     @relation(fields: [geoRegionId], references: [id])
-  geoRegionId String
-  districts   AbgDistrict[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@unique([name, geoRegionId])
-}
-
-model AbgDistrict {
-  id             String         @id @default(cuid())
-  name           String
-  region         Region         @relation(fields: [regionId], references: [id])
-  regionId       String
-  constituencies Constituency[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  @@unique([name, regionId])
-}
-
-model Constituency {
-  id         String      @id @default(cuid())
-  name       String
-  district   AbgDistrict @relation(fields: [districtId], references: [id])
-  districtId String
-  villages   String[] // Store village names as an array
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-
-  @@unique([name, districtId])
-}
-
-// MKA Structure
-model MkaRegion {
-  id          String    @id @default(cuid())
-  name        String
-  geoRegion   GeoRegion @relation(fields: [geoRegionId], references: [id])
-  geoRegionId String
-  wards       MkaWard[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([name, geoRegionId])
-}
-
-model MkaWard {
-  id        String    @id @default(cuid())
-  name      String
-  region    MkaRegion @relation(fields: [regionId], references: [id])
-  regionId  String
-  sections  String[] // Store section/village names as an array
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  @@unique([name, regionId])
 }
 
 enum Role {

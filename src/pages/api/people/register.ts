@@ -83,6 +83,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             s3FolderPath = residentialPath.replace(/:/g, '/');
         }
 
+        console.log(`Uploading image to S3 path: ${s3FolderPath}/${filename}`);
+
         // Upload image to S3
         const s3Key = await s3Service.uploadImage(image, s3FolderPath, filename);
 
@@ -90,15 +92,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(500).json({ message: 'Failed to upload image to S3' });
         }
 
+        console.log(`Image uploaded to S3 successfully. S3 Key: ${s3Key}`);
+
         // Create the external image ID for Rekognition
         const externalImageId = convertS3PathToExternalId(s3Key);
+        console.log(`Generated externalImageId: ${externalImageId}`);
 
-        // Index face in Rekognition
-        const indexResult = await rekognitionService.indexFace('PNG', s3Key, externalImageId);
+        // Index face in Rekognition - FIXED: using the image data instead of S3 key
+        console.log(`Indexing face in collection: PNG with externalImageId: ${externalImageId}`);
+        const indexResult = await rekognitionService.indexFace(
+            image,  // Pass the image data, not the S3 key
+            'PNG',  // Collection ID
+            externalImageId  // External image ID
+        );
 
-        if (!indexResult || !indexResult.FaceId) {
+        if (!indexResult || !indexResult.faceRecords || indexResult.faceRecords.length === 0) {
+            console.error('Failed to index face:', indexResult);
             return res.status(500).json({ message: 'Failed to index face in Rekognition' });
         }
+
+        // Get the faceId from the indexing result
+        const faceId = indexResult.faceRecords[0].Face?.FaceId;
+
+        if (!faceId) {
+            return res.status(500).json({ message: 'No face ID returned from Rekognition' });
+        }
+
+        console.log(`Face indexed successfully. Face ID: ${faceId}`);
 
         // Create person in database
         const person = await prisma.person.create({
@@ -112,7 +132,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 religion,
                 denomination,
                 clan,
-                faceId: indexResult.FaceId,
+                faceId: faceId,
                 externalImageId,
                 s3ImagePath: s3Key,
                 residentialPath,
@@ -128,6 +148,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
     } catch (error) {
         console.error('Error registering person:', error);
-        return res.status(500).json({ message: 'Error registering person' });
+        return res.status(500).json({
+            message: 'Error registering person',
+            error: (error as Error).message
+        });
     }
 }

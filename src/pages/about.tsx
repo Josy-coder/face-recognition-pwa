@@ -13,13 +13,12 @@ export default function AboutPage() {
                 <title>About PNG Pess Book</title>
                 <meta name="description" content="About PNG Pess Book - A platform to register faces of PNG people" />
             </Head>
-            <Layout title="About PNG Pess Book" showHistory={false} showNewSearch={false}>
+            <Layout title="" showHistory={false} showNewSearch={false}>
                 <div className="max-w-4xl mx-auto">
                     <Card className="border-none shadow-none mb-8">
                         <CardContent className="p-6">
                             <div className="space-y-6">
                                 <div>
-                                    <h1 className="text-3xl font-bold text-indigo-700 mb-4">About PNG Pess Book</h1>
                                     <p className="mb-4 text-slate-700">
                                         PNG Pessbook is a platform to register faces of PNG people. It has become an essential National Electronic Technology UI proven to be an inexpensive exercise to implement in Papua New Guinea.
                                     </p>
