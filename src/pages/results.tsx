@@ -202,8 +202,8 @@ export default function Results() {
         processedResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
 
         // Split results into high confidence (98%+) and others
-        const highMatches = processedResults.filter(result => result.matchConfidence >= 98);
-        const otherMatches = processedResults.filter(result => result.matchConfidence < 98);
+        const highMatches = processedResults.filter(result => result.matchConfidence >= 99);
+        const otherMatches = processedResults.filter(result => result.matchConfidence >= 98 && result.matchConfidence < 99);
 
         setResults(processedResults);
         setHighConfidenceMatches(highMatches);
@@ -329,9 +329,9 @@ export default function Results() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                         </div>
-                        <h2 className="text-xl font-semibold mb-2">No Matching Results</h2>
+                        <h2 className="text-xl font-semibold mb-2">No Primary Matches</h2>
                         <p className="text-slate-600 dark:text-slate-400 mb-6">
-                            We couldn&#39;t find any matches for the provided face image.
+                            We couldn&#39;t find any matches with 99% or higher confidence.
                         </p>
                         <Button onClick={handleNewSearch} className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600">
                             Try Again
@@ -456,10 +456,10 @@ export default function Results() {
                     {/* Matches List */}
                     <div>
                         <h3 className="font-semibold text-lg mb-4">
-                            {showAllMatches ? 'All Matches' : 'High Confidence Matches (98%+)'}
+                            {showAllMatches ? 'All Valid Matches' : 'Primary Matches (99%+)'}
                         </h3>
                         <div className="space-y-3">
-                            {(showAllMatches ? results : highConfidenceMatches).map(result => (
+                            {(showAllMatches ? [...highMatches, ...otherMatches] : highMatches).map(result => (
                                 <Card
                                     key={result.id}
                                     className="overflow-hidden transition-colors cursor-pointer border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md"
@@ -507,7 +507,7 @@ export default function Results() {
                                     className="w-full"
                                     onClick={toggleShowAllMatches}
                                 >
-                                    Show {otherMatches.length} More Match{otherMatches.length !== 1 ? 'es' : ''}
+                                    Show {otherMatches.length} Additional Match{otherMatches.length !== 1 ? 'es' : ''} (98-99%)
                                 </Button>
                             )}
                         </div>
