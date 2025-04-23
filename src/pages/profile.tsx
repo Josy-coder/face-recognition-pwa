@@ -462,11 +462,6 @@ export default function ProfilePage() {
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
-                                <div className="text-center mb-4">
-                                    <p>
-                                        Take a clear photo of your face or upload an image to verify your identity.
-                                    </p>
-                                </div>
 
                                 <SimpleCameraCapture onCapture={async (imageSrc) => {
                                     try {
