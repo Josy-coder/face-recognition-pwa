@@ -114,33 +114,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Generate verification token
         const verificationToken = crypto.randomBytes(32).toString('hex');
 
-        // Create user
-        const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                firstName,
-                middleName,
-                lastName,
-                gender,
-                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-                profileImageUrl: s3Key,
-                faceId, // This could be null if face indexing failed
-                residentialPath,
-                verificationToken,
-                isEmailVerified: false,
-                occupation,
-                religion,
-                denomination,
-                clan
+        // Create user with transaction to ensure we can roll back if email fails
+        const user = await prisma.$transaction(async (prismaClient) => {
+            // First create the user
+            const newUser = await prismaClient.user.create({
+                data: {
+                    email,
+                    password: hashedPassword,
+                    firstName,
+                    middleName,
+                    lastName,
+                    gender,
+                    dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+                    profileImageUrl: s3Key,
+                    faceId, // This could be null if face indexing failed
+                    residentialPath,
+                    verificationToken,
+                    isEmailVerified: false,
+                    occupation,
+                    religion,
+                    denomination,
+                    clan
+                }
+            });
+
+            console.log(`User created successfully. User ID: ${newUser.id}`);
+
+            // Now try to send the verification email
+            try {
+                await sendVerificationEmail(email, verificationToken);
+                console.log(`Verification email sent to ${email}`);
+                return newUser;
+            } catch (emailError) {
+                // If email sending fails, we'll throw the error which will rollback the transaction
+                console.error(`Failed to send verification email to ${email}:`, emailError);
+                throw new Error(`Failed to send verification email: ${(emailError as Error).message}`);
             }
         });
-
-        console.log(`User created successfully. User ID: ${user.id}`);
-
-        // Send verification email
-        await sendVerificationEmail(email, verificationToken);
-        console.log(`Verification email sent to ${email}`);
 
         // For debugging: Let's add face info to the response
         return res.status(201).json({
@@ -148,7 +158,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 'User registered successfully. Please check your email to verify your account.' :
                 'User registered with image but without face recognition. Please check your email to verify your account.',
             userId: user.id,
-            faceIndexed: !!faceId
+            faceIndexed: !!faceId,
+            emailSent: true // This will always be true if we reach here, otherwise transaction would have failed
         });
     } catch (error) {
         console.error('Error in registration API:', error);
