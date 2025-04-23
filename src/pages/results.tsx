@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -459,7 +458,7 @@ export default function Results() {
                             {showAllMatches ? 'All Valid Matches' : 'Primary Matches (99%+)'}
                         </h3>
                         <div className="space-y-3">
-                            {(showAllMatches ? [...highMatches, ...otherMatches] : highMatches).map(result => (
+                            {(showAllMatches ? [...highConfidenceMatches, ...otherMatches] : highConfidenceMatches).map(result => (
                                 <Card
                                     key={result.id}
                                     className="overflow-hidden transition-colors cursor-pointer border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 shadow-md"
