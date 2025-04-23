@@ -12,16 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
-import LivenessDetection from '@/components/capture/LivenessDetection';
 import FolderSelector from '@/components/capture/FolderSelector';
-import { RefreshCw, CheckCircle } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-// Registration steps
+// Registration steps - Now with combined face detection (removing separate liveness step)
 enum RegistrationStep {
     TAKE_SELFIE = 0,
-    LIVE_DETECTION = 1,
-    PERSONAL_INFO = 2,
-    EMAIL_CONFIRMATION = 3
+    PERSONAL_INFO = 1,
+    EMAIL_CONFIRMATION = 2
 }
 
 export default function AccountRegistrationPage() {
@@ -32,7 +31,7 @@ export default function AccountRegistrationPage() {
     const [showAgreementDialog, setShowAgreementDialog] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [faceId] = useState<string | null>(null);
-    const [, setLivenessVerified] = useState(false);
+    const [faceVerified, setFaceVerified] = useState(false);
 
     // Form data
     const [email, setEmail] = useState('');
@@ -49,12 +48,13 @@ export default function AccountRegistrationPage() {
     const [clan, setClan] = useState('');
     const [residentialPath, setResidentialPath] = useState('');
 
-    // Handle simple selfie capture
+    // Handle selfie capture with simple face detection
     const handleSelfieCapture = async (imageSrc: string) => {
         setCapturedImage(imageSrc);
+        setIsLoading(true);
 
-        // Check if face is detected
         try {
+            // Check if face is detected - that's all we need
             const response = await fetch('/api/face-detection', {
                 method: 'POST',
                 headers: {
@@ -66,29 +66,22 @@ export default function AccountRegistrationPage() {
             const data = await response.json();
 
             if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
-                // Move to liveness detection step
-                setCurrentStep(RegistrationStep.LIVE_DETECTION);
+                // Face detected - that's all we need to validate
+                setFaceVerified(true);
+                toast.success('Face verified successfully!');
+
+                // Move directly to personal info step
+                setCurrentStep(RegistrationStep.PERSONAL_INFO);
             } else {
+                // No face detected
                 toast.error('No face detected. Please try again with a clearer photo.');
             }
         } catch (error) {
             console.error('Face detection error:', error);
-            toast.error('Error detecting face. Please try again.');
+            toast.error('Error processing image. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
-    };
-
-    // Handle liveness detection completion
-    const handleLivenessPassed = (imageSrc: string) => {
-        setCapturedImage(imageSrc);
-        setLivenessVerified(true);
-        // Move to the personal info step
-        setCurrentStep(RegistrationStep.PERSONAL_INFO);
-    };
-
-    // Handle liveness detection cancellation
-    const handleLivenessCancel = () => {
-        // Go back to selfie capture step
-        setCurrentStep(RegistrationStep.TAKE_SELFIE);
     };
 
     // Move to next registration step
@@ -148,7 +141,8 @@ export default function AccountRegistrationPage() {
                     clan,
                     faceId,
                     residentialPath,
-                    image: capturedImage
+                    image: capturedImage,
+                    faceVerified  // Add this flag so backend knows face was verified
                 }),
             });
 
@@ -178,32 +172,23 @@ export default function AccountRegistrationPage() {
                             <CardTitle>Take a Selfie</CardTitle>
                         </CardHeader>
                         <CardContent className="p-6">
-                            <div className="text-center mb-4">
-                                <p>
-                                    Please take a clear selfie photo for your account.
-                                </p>
+                            <Alert className="mb-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+                                <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                <AlertDescription className="text-sm text-blue-600 dark:text-blue-400">
+                                    This session is being used to verify your identity. Please ensure you are in a well-lit area for your movements to be visible.
+                                </AlertDescription>
+                            </Alert>
+
+                            <SimpleCameraCapture onCapture={handleSelfieCapture} isLoading={isLoading} />
+
+                            <div className="mt-4 text-sm text-slate-500">
+                                <ul className="list-disc pl-5 space-y-1">
+                                    <li>Look directly at the camera</li>
+                                    <li>Ensure good lighting on your face</li>
+                                    <li>Remove sunglasses or hats</li>
+                                    <li>Keep a neutral expression</li>
+                                </ul>
                             </div>
-
-                            <SimpleCameraCapture onCapture={handleSelfieCapture} />
-
-                            <div className="mt-4 text-sm text-slate-500 text-center">
-                                <p>This photo will be used for face recognition to secure your account.</p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                );
-
-            case RegistrationStep.LIVE_DETECTION:
-                return (
-                    <Card className="border-none shadow-lg">
-                        <CardHeader className="text-center bg-slate-50">
-                            <CardTitle>Live Person Verification</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-6">
-                            <LivenessDetection
-                                onLivenessPassed={handleLivenessPassed}
-                                onCancel={handleLivenessCancel}
-                            />
                         </CardContent>
                     </Card>
                 );
@@ -225,6 +210,12 @@ export default function AccountRegistrationPage() {
                                                 className="w-full h-full object-cover"
                                             />
                                         </div>
+                                        {faceVerified && (
+                                            <div className="mt-1 flex items-center justify-center gap-1 text-xs text-green-600">
+                                                <CheckCircle className="h-3 w-3" />
+                                                <span>Verified</span>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -498,10 +489,10 @@ export default function AccountRegistrationPage() {
             </Head>
             <Layout title="Create a PNG Pess Book Account" showHistory={false} showNewSearch={false}>
                 <div className="max-w-3xl mx-auto">
-                    {/* Steps indicator */}
+                    {/* Steps indicator - now with 3 steps instead of 4 */}
                     <div className="mb-8">
                         <div className="flex justify-between items-center relative">
-                            {[1, 2, 3, 4].map((step) => {
+                            {[1, 2, 3].map((step) => {
                                 let isActive = false;
                                 let isCompleted = false;
 
@@ -524,9 +515,8 @@ export default function AccountRegistrationPage() {
                                         </div>
                                         <span className="text-xs block whitespace-nowrap">
                                             {step === 1 && "Take Selfie"}
-                                            {step === 2 && "Live Detection"}
-                                            {step === 3 && "Your Information"}
-                                            {step === 4 && "Confirmation"}
+                                            {step === 2 && "Your Information"}
+                                            {step === 3 && "Confirmation"}
                                         </span>
                                     </div>
                                 );
