@@ -1,18 +1,10 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-// Email configuration
-const emailConfig = {
-    host: process.env.SMTP_HOST || 'smtp.example.com',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-        user: process.env.SMTP_USER || 'user@example.com',
-        pass: process.env.SMTP_PASSWORD || 'password'
-    }
-};
+// Initialize Resend client
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Create transporter
-const transporter = nodemailer.createTransport(emailConfig);
+// Fallback configuration for backwards compatibility
+const fallbackFromEmail = process.env.SMTP_FROM_EMAIL || 'PNG Pess Book <noreply@example.com>';
 
 /**
  * Send verification email to new users
@@ -24,11 +16,12 @@ export async function sendVerificationEmail(email: string, token: string): Promi
     const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
     const verificationUrl = `${baseUrl}/api/auth/verify-email?token=${token}`;
 
-    const mailOptions = {
-        from: process.env.SMTP_FROM_EMAIL || 'PNG Pess Book <noreply@example.com>',
-        to: email,
-        subject: 'Verify Your PNG Pess Book Account',
-        html: `
+    try {
+        await resend.emails.send({
+            from: fallbackFromEmail,
+            to: email,
+            subject: 'Verify Your PNG Pess Book Account',
+            html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px;">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #4f46e5;">PNG Pess Book</h1>
@@ -54,10 +47,7 @@ export async function sendVerificationEmail(email: string, token: string): Promi
         </div>
       </div>
     `
-    };
-
-    try {
-        await transporter.sendMail(mailOptions);
+        });
         console.log(`Verification email sent to ${email}`);
     } catch (error) {
         console.error('Error sending verification email:', error);
@@ -75,11 +65,12 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
     const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
-    const mailOptions = {
-        from: process.env.SMTP_FROM_EMAIL || 'PNG Pess Book <noreply@example.com>',
-        to: email,
-        subject: 'Reset Your PNG Pess Book Password',
-        html: `
+    try {
+        await resend.emails.send({
+            from: fallbackFromEmail,
+            to: email,
+            subject: 'Reset Your PNG Pess Book Password',
+            html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px;">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #4f46e5;">PNG Pess Book</h1>
@@ -105,10 +96,7 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
         </div>
       </div>
     `
-    };
-
-    try {
-        await transporter.sendMail(mailOptions);
+        });
         console.log(`Password reset email sent to ${email}`);
     } catch (error) {
         console.error('Error sending password reset email:', error);
@@ -123,11 +111,12 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
  * @param message Email message
  */
 export async function sendNotificationEmail(email: string, subject: string, message: string): Promise<void> {
-    const mailOptions = {
-        from: process.env.SMTP_FROM_EMAIL || 'PNG Pess Book <noreply@example.com>',
-        to: email,
-        subject,
-        html: `
+    try {
+        await resend.emails.send({
+            from: fallbackFromEmail,
+            to: email,
+            subject,
+            html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px;">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #4f46e5;">PNG Pess Book</h1>
@@ -143,10 +132,7 @@ export async function sendNotificationEmail(email: string, subject: string, mess
         </div>
       </div>
     `
-    };
-
-    try {
-        await transporter.sendMail(mailOptions);
+        });
         console.log(`Notification email sent to ${email}`);
     } catch (error) {
         console.error('Error sending notification email:', error);
