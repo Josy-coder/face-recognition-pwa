@@ -54,6 +54,13 @@ export default function CreateAlbumPage() {
         setIsSubmitting(true);
 
         try {
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
             const response = await fetch('/api/albums/create', {
                 method: 'POST',
                 headers: {
@@ -61,7 +68,8 @@ export default function CreateAlbumPage() {
                 },
                 body: JSON.stringify({
                     name: albumName.trim(),
-                    description: albumDescription.trim()
+                    description: albumDescription.trim(),
+                    userId: userId
                 }),
             });
 
@@ -155,7 +163,8 @@ export default function CreateAlbumPage() {
                             <CardFooter className="flex justify-between bg-slate-50 px-6 py-4">
                                 <Button
                                     type="button"
-                                    variant="outline"
+                                    variant="ghost"
+                                    className="border-gray"
                                     onClick={handleCancel}
                                 >
                                     Cancel

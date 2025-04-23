@@ -62,20 +62,30 @@ class S3Service {
      */
     async getImageUrl(key: string, expiresIn: number = 3600): Promise<string | null> {
         try {
+            if (!key) return null;
+
             const s3 = getS3Client();
 
+            // Create the command for getting the object
             const command = new GetObjectCommand({
                 Bucket: this.bucketName,
                 Key: key
             });
 
-            return await getSignedUrl(s3, command, { expiresIn });
+            // Get signed URL
+            const signedUrl = await getSignedUrl(s3, command, {
+                expiresIn,
+                // Add required AWS Signature Version 4 parameters
+                signableHeaders: new Set(['host']),
+                forcePathStyle: true // Use path-style URL format
+            });
+
+            return signedUrl;
         } catch (error) {
             console.error('Error getting signed URL:', error);
             return null;
         }
     }
-
     /**
      * List folders (prefixes) in a path
      */

@@ -1,32 +1,19 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { verifyToken } from '@/lib/auth';
-import { parseCookies } from 'nookies';
 
 const prisma = new PrismaClient();
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function detailsHandler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'GET') {
         return res.status(405).json({ message: 'Method not allowed' });
     }
 
     try {
-        // Get token from cookies
-        const cookies = parseCookies({ req });
-        const token = cookies.auth_token;
+        const { id, userId } = req.query;
 
-        if (!token) {
-            return res.status(401).json({ message: 'Unauthorized: Not logged in' });
+        if (!userId || typeof userId !== 'string') {
+            return res.status(400).json({ message: 'User ID is required' });
         }
-
-        // Verify token
-        const decodedToken = verifyToken(token);
-
-        if (!decodedToken) {
-            return res.status(401).json({ message: 'Unauthorized: Invalid token' });
-        }
-
-        const { id } = req.query;
 
         if (!id || typeof id !== 'string') {
             return res.status(400).json({ message: 'Album ID is required' });
@@ -36,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const album = await prisma.album.findFirst({
             where: {
                 id,
-                ownerId: decodedToken.userId
+                ownerId: userId
             },
             include: {
                 people: true

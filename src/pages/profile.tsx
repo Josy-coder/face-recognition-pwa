@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Button } from '@/components/ui/button';
@@ -7,8 +7,8 @@ import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import Layout from '@/components/layout/layout';
-import { RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users, Save, X, PlusCircle } from 'lucide-react';
-import CameraCapture from '@/components/capture/CameraCapture';
+import {RefreshCw, Camera, UserCircle, LucideLogOut, Edit, Users, Save, X, PlusCircle, BookImage} from 'lucide-react';
+import SimpleCameraCapture from '@/components/capture/SimpleCameraCapture';
 import ResidentialPathDisplay from '@/components/location/ResidentialPathDisplay';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,7 @@ interface User {
     lastName?: string;
     gender?: string;
     profileImageUrl?: string;
+    signedProfileImageUrl?: string;
     residentialPath?: string;
     dateOfBirth?: string;
     // Additional fields
@@ -48,6 +49,7 @@ interface User {
 
 // Define the Person type for registered people
 interface Person {
+    signedImageUrl: any;
     id: string;
     firstName: string;
     middleName?: string;
@@ -68,7 +70,20 @@ interface Album {
     createdAt: string;
 }
 
+// Helper function to get direct S3 URL
+const getDirectS3Url = (key: string | undefined): string | undefined => {
+    if (!key) return undefined;
+
+    // Your S3 bucket name
+    const bucketName = 'facerecog-app-storage';
+    const region = 'ap-southeast-2';
+
+    // Format: https://bucket-name.s3.region.amazonaws.com/key
+    return `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+};
+
 export default function ProfilePage() {
+    const initialFetchDone = useRef(false);
     const router = useRouter();
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -77,9 +92,8 @@ export default function ProfilePage() {
     const [albums, setAlbums] = useState<Album[]>([]);
     const [showCameraCapture, setShowCameraCapture] = useState(false);
     const [editFlowState, setEditFlowState] = useState<EditFlowState>(EditFlowState.IDLE);
-    const [capturedImage, setCapturedImage] = useState<string | null>(null);
-    const [isVerifyingFace, setIsVerifyingFace] = useState(false);
-    const [didInitialFetch, setDidInitialFetch] = useState(false);
+    const [, setCapturedImage] = useState<string | null>(null);
+    const [, setDidInitialFetch] = useState(false);
 
     // Form state for editing profile
     const [editedUser, setEditedUser] = useState<User | null>(null);
@@ -92,113 +106,161 @@ export default function ProfilePage() {
     const fetchUserProfile = useCallback(async () => {
         try {
             setIsLoading(true);
-            console.log("Fetching user profile...");
 
-            // Debug auth state
-            console.log("Auth from store:", {
-                userData,
-                isLoggedIn,
-                isAdminLoggedIn
-            });
-
-            // Use auth store to get user data first
+            // Get user data from store first
             if (userData && (isLoggedIn || isAdminLoggedIn)) {
-                // If we already have user data in store, use it
-                console.log("Using data from store:", userData);
-                setUser(userData as User);
-                setEditedUser(userData as User);
+                const userWithSignedUrl = {...userData} as User;
+
+                // Use direct S3 URL for profile image
+                if (userWithSignedUrl.profileImageUrl) {
+                    userWithSignedUrl.signedProfileImageUrl = getDirectS3Url(userWithSignedUrl.profileImageUrl);
+
+                    // Update auth store
+                    setStoreUser({
+                        ...userData,
+                        signedProfileImageUrl: userWithSignedUrl.signedProfileImageUrl
+                    });
+                }
+
+                setUser(userWithSignedUrl);
+                setEditedUser(userWithSignedUrl);
 
                 if (userData.residentialPath) {
                     setSelectedLocation(userData.residentialPath);
                 }
 
-                // Only fetch registered people and albums for regular users, not admins
+                // Only fetch registered people and albums for regular users
                 if (isLoggedIn && !isAdminLoggedIn) {
                     await fetchRegisteredPeople();
                     await fetchAlbums();
                 }
                 setDidInitialFetch(true);
                 setIsLoading(false);
-            } else {
-                // Otherwise fetch from API
-                console.log("Fetching from API");
-                try {
-                    const response = await fetch('/api/auth/profile');
-                    console.log("API response status:", response.status);
+                return;
+            }
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log("API returned user data:", data);
+            // If no data in store, get the userId from the store
+            const { userData: currentUser, adminData } = useAuthStore.getState();
+            const userId = currentUser?.id || adminData?.id;
 
-                        // Update local state
-                        setUser(data.user);
-                        setEditedUser(data.user);
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
 
-                        // Also update auth store
-                        setStoreUser(data.user);
+            // Fetch from API with userId
+            const response = await fetch(`/api/auth/profile?userId=${userId}`);
 
-                        if (data.user.residentialPath) {
-                            setSelectedLocation(data.user.residentialPath);
-                        }
+            if (response.ok) {
+                const data = await response.json();
+                const user = data.user;
 
-                        // Only fetch registered people for regular users, not admins
-                        if (!data.isAdmin) {
-                            await fetchRegisteredPeople();
-                            await fetchAlbums();
-                        }
-
-                        setDidInitialFetch(true);
-                        setIsLoading(false);
-                    } else {
-                        console.log("Response not OK:", await response.text());
-                        setTimeout(() => {
-                            router.push('/login');
-                        }, 500);
-                    }
-                } catch (fetchError) {
-                    console.error("Fetch specific error:", fetchError);
-                    setTimeout(() => {
-                        router.push('/login');
-                    }, 500);
+                // Use direct S3 URL for profile image
+                if (user.profileImageUrl) {
+                    user.signedProfileImageUrl = getDirectS3Url(user.profileImageUrl);
                 }
+
+                // Update local state and auth store
+                setUser(user);
+                setEditedUser(user);
+                setStoreUser(user);
+
+                if (user.residentialPath) {
+                    setSelectedLocation(user.residentialPath);
+                }
+
+                // Only fetch registered people for regular users
+                if (!data.isAdmin) {
+                    await fetchRegisteredPeople();
+                    await fetchAlbums();
+                }
+
+                setDidInitialFetch(true);
+            } else {
+                if (response.status === 401) {
+                    router.push('/login');
+                    return;
+                }
+                throw new Error('Failed to fetch profile');
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
             toast.error('Failed to load profile');
-
-            setTimeout(() => {
-                router.push('/login');
-            }, 500);
+            router.push('/login');
+        } finally {
+            setIsLoading(false);
         }
     }, [router, setStoreUser, isLoggedIn, isAdminLoggedIn, userData]);
 
     // Check authentication on mount - runs only once
     useEffect(() => {
-        if (!didInitialFetch) {
+        if (!initialFetchDone.current) {
             fetchUserProfile();
+            initialFetchDone.current = true;
         }
-    }, [fetchUserProfile, didInitialFetch]);
+    }, [fetchUserProfile]);
+
+    // Get direct S3 URL for person's image
+    const fetchPersonImage = async (person: Person) => {
+        if (!person.s3ImagePath) return null;
+
+        // Simply return the direct S3 URL
+        return getDirectS3Url(person.s3ImagePath);
+    };
 
     // Fetch people registered by the user
     const fetchRegisteredPeople = async () => {
         try {
-            const response = await fetch('/api/people/registered-by-me');
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/api/people/registered-by-me?userId=${userId}`);
 
             if (response.ok) {
                 const data = await response.json();
-                setRegisteredPeople(data.people || []);
+                const people = data.people || [];
+
+                // Add direct URLs for each person's image
+                const peopleWithUrls = await Promise.all(
+                    people.map(async (person: Person) => {
+                        if (person.s3ImagePath) {
+                            const directUrl = getDirectS3Url(person.s3ImagePath);
+                            return {
+                                ...person,
+                                signedImageUrl: directUrl
+                            };
+                        }
+                        return person;
+                    })
+                );
+
+                setRegisteredPeople(peopleWithUrls);
             } else {
                 console.error('Failed to fetch registered people:', await response.text());
+                if (response.status === 401) {
+                    router.push('/login');
+                }
             }
         } catch (error) {
             console.error('Error fetching registered people:', error);
+            toast.error('Failed to fetch registered people');
         }
     };
 
     // Fetch user's albums
     const fetchAlbums = async () => {
         try {
-            const response = await fetch('/api/albums/list');
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/api/albums/list?userId=${userId}`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -221,51 +283,7 @@ export default function ProfilePage() {
     // Start the edit profile flow
     const startEditFlow = () => {
         setEditFlowState(EditFlowState.LIVE_TEST);
-        toast.info('Please complete a live person test to edit your profile');
-    };
-
-    // Handle image capture for live test
-    const handleLiveTestCapture = (imageSrc: string) => {
-        setCapturedImage(imageSrc);
-        setEditFlowState(EditFlowState.VERIFY_FACE);
-    };
-
-    // Handle face verification
-    const handleVerifyFace = async () => {
-        if (!capturedImage) {
-            toast.error('No image captured');
-            return;
-        }
-
-        setIsVerifyingFace(true);
-
-        try {
-            // Verify the face matches the user
-            const response = await fetch('/api/auth/verify-user-face', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ image: capturedImage }),
-            });
-
-            if (response.ok) {
-                toast.success('Identity verified successfully');
-                setEditFlowState(EditFlowState.EDIT);
-            } else {
-                const data = await response.json();
-                toast.error(data.message || 'Face verification failed');
-                // Reset to idle state after failure
-                setEditFlowState(EditFlowState.IDLE);
-                setCapturedImage(null);
-            }
-        } catch (error) {
-            console.error('Error verifying face:', error);
-            toast.error('An error occurred during face verification');
-            setEditFlowState(EditFlowState.IDLE);
-        } finally {
-            setIsVerifyingFace(false);
-        }
+        toast.info('Please complete a face verification to edit your profile');
     };
 
     // Update profile picture
@@ -274,6 +292,15 @@ export default function ProfilePage() {
 
         setIsLoading(true);
 
+        const { userData, adminData } = useAuthStore.getState();
+        const userId = userData?.id || adminData?.id;
+
+        if (!userId) {
+            toast.error('Authentication error');
+            router.push('/login');
+            return;
+        }
+
         try {
             // Update face photo
             const response = await fetch('/api/auth/update-face', {
@@ -281,24 +308,31 @@ export default function ProfilePage() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ image: imageSrc }),
+                body: JSON.stringify({
+                    image: imageSrc,
+                    userId: userId
+                }),
             });
 
             if (response.ok) {
                 const data = await response.json();
                 toast.success('Face photo updated successfully');
 
-                // Update user data in local state
-                setUser(prev => prev ? {...prev, profileImageUrl: data.profileImageUrl} : null);
-                setEditedUser(prev => prev ? {...prev, profileImageUrl: data.profileImageUrl} : null);
+                // Get a direct URL for the new profile image
+                const directUrl = getDirectS3Url(data.profileImageUrl);
 
-                // Also update the auth store with new profile image
-                if (userData) {
-                    setStoreUser({
-                        ...userData,
-                        profileImageUrl: data.profileImageUrl
-                    });
-                }
+                // Update user data in local state and store
+                const updatedUser = {
+                    ...user,
+                    profileImageUrl: data.profileImageUrl,
+                    signedProfileImageUrl: directUrl
+                };
+
+                setUser(updatedUser);
+                setEditedUser(updatedUser);
+
+                // Update auth store
+                setStoreUser(updatedUser);
 
                 // Hide camera
                 setShowCameraCapture(false);
@@ -351,6 +385,11 @@ export default function ProfilePage() {
             if (response.ok) {
                 const data = await response.json();
                 toast.success('Profile updated successfully');
+
+                // Add direct URL to user data
+                if (data.user.profileImageUrl) {
+                    data.user.signedProfileImageUrl = getDirectS3Url(data.user.profileImageUrl);
+                }
 
                 // Update user data in local state
                 setUser(data.user);
@@ -416,13 +455,45 @@ export default function ProfilePage() {
                 return (
                     <Card className="mb-6">
                         <CardHeader className="pb-3">
-                            <h3 className="text-lg font-medium">Live Person Test</h3>
+                            <h3 className="text-lg font-medium">Verify Your Identity</h3>
                             <p className="text-sm text-slate-500">
-                                For security, please take a live photo to verify your identity.
+                                For security, please take a clear photo of your face to proceed with profile editing.
                             </p>
                         </CardHeader>
                         <CardContent>
-                            <CameraCapture onCapture={handleLiveTestCapture} />
+                            <div className="space-y-4">
+                                <div className="text-center mb-4">
+                                    <p>
+                                        Take a clear photo of your face or upload an image to verify your identity.
+                                    </p>
+                                </div>
+
+                                <SimpleCameraCapture onCapture={async (imageSrc) => {
+                                    try {
+                                        // Check if face is detected using the same approach as registration
+                                        const response = await fetch('/api/face-detection', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({ image: imageSrc }),
+                                        });
+
+                                        const data = await response.json();
+
+                                        if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
+                                            setCapturedImage(imageSrc);
+                                            // Skip the VERIFY_FACE step and go straight to EDIT
+                                            setEditFlowState(EditFlowState.EDIT);
+                                        } else {
+                                            toast.error('No face detected. Please try again with a clearer photo.');
+                                        }
+                                    } catch (error) {
+                                        console.error('Face detection error:', error);
+                                        toast.error('Error detecting face. Please try again.');
+                                    }
+                                }} />
+                            </div>
                         </CardContent>
                         <CardFooter className="flex justify-end space-x-2">
                             <Button variant="ghost" className="border border-gray" onClick={cancelEdit}>
@@ -433,48 +504,7 @@ export default function ProfilePage() {
                 );
 
             case EditFlowState.VERIFY_FACE:
-                return (
-                    <Card className="mb-6">
-                        <CardHeader className="pb-3">
-                            <h3 className="text-lg font-medium">Verify Your Identity</h3>
-                            <p className="text-sm text-slate-500">
-                                Confirm this is you in the photo
-                            </p>
-                        </CardHeader>
-                        <CardContent className="text-center">
-                            {capturedImage && (
-                                <div className="mb-4">
-                                    <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100">
-                                        <img
-                                            src={capturedImage}
-                                            alt="Captured face"
-                                            className="w-full h-full object-cover"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </CardContent>
-                        <CardFooter className="flex justify-between">
-                            <Button variant="outline" onClick={cancelEdit}>
-                                Cancel
-                            </Button>
-                            <Button
-                                onClick={handleVerifyFace}
-                                disabled={isVerifyingFace}
-                                className="bg-indigo-600 hover:bg-indigo-700"
-                            >
-                                {isVerifyingFace ? (
-                                    <>
-                                        <RefreshCw size={16} className="mr-2 animate-spin" />
-                                        Verifying...
-                                    </>
-                                ) : (
-                                    'Verify Identity'
-                                )}
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                );
+                return null;
 
             case EditFlowState.EDIT:
                 return editedUser ? (
@@ -489,9 +519,9 @@ export default function ProfilePage() {
                                     <div className="flex justify-center">
                                         <div className="relative">
                                             <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100">
-                                                {editedUser.profileImageUrl ? (
+                                                {editedUser.signedProfileImageUrl ? (
                                                     <img
-                                                        src={editedUser.profileImageUrl}
+                                                        src={editedUser.signedProfileImageUrl}
                                                         alt={getFullName(editedUser)}
                                                         className="w-full h-full object-cover"
                                                         onError={(e) => {
@@ -517,7 +547,7 @@ export default function ProfilePage() {
                                     {/* Camera capture for updating photo */}
                                     {showCameraCapture && (
                                         <div className="mt-4">
-                                            <CameraCapture onCapture={handleUpdateProfilePicture} />
+                                            <SimpleCameraCapture onCapture={handleUpdateProfilePicture} />
 
                                             <div className="mt-2 flex justify-end">
                                                 <Button
@@ -692,7 +722,8 @@ export default function ProfilePage() {
                                         <Label>Residential Location</Label>
                                         <FolderSelector
                                             onFolderSelect={(folders) => {
-                                                if (folders.length > 0) {setSelectedLocation(folders[0]);
+                                                if (folders.length > 0) {
+                                                    setSelectedLocation(folders[0]);
                                                 }
                                             }}
                                             initialSelected={selectedLocation ? [selectedLocation] : []}
@@ -775,9 +806,9 @@ export default function ProfilePage() {
                                 <CardContent className="p-6 text-center">
                                     <div className="mb-6">
                                         <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 bg-slate-100 relative">
-                                            {user.profileImageUrl ? (
+                                            {user.signedProfileImageUrl ? (
                                                 <img
-                                                    src={user.profileImageUrl}
+                                                    src={user.signedProfileImageUrl}
                                                     alt={getFullName(user)}
                                                     className="w-full h-full object-cover"
                                                     onError={(e) => {
@@ -813,17 +844,17 @@ export default function ProfilePage() {
                                 <CardContent className="px-6 py-4">
                                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                                         <TabsList className="grid w-full grid-cols-3 mb-4">
-                                            <TabsTrigger value="profile" className="flex items-center gap-2">
-                                                <UserCircle size={16} />
-                                                <span>Profile</span>
+                                            <TabsTrigger value="profile" className="flex items-center justify-center gap-1 px-1 sm:px-3 py-2 text-xs sm:text-sm">
+                                                <UserCircle className="h-4 w-4 sm:h-5 sm:w-5" />
+                                                <span className="hidden sm:inline">Profile</span>
                                             </TabsTrigger>
-                                            <TabsTrigger value="people" className="flex items-center gap-2">
-                                                <Users size={16} />
-                                                <span>Registered People</span>
+                                            <TabsTrigger value="people" className="flex items-center justify-center gap-1 px-1 sm:px-3 py-2 text-xs sm:text-sm">
+                                                <Users className="h-4 w-4 sm:h-5 sm:w-5" />
+                                                <span className="hidden sm:inline">People</span>
                                             </TabsTrigger>
-                                            <TabsTrigger value="albums" className="flex items-center gap-2">
-                                                <Users size={16} />
-                                                <span>My Albums</span>
+                                            <TabsTrigger value="albums" className="flex items-center justify-center gap-1 px-1 sm:px-3 py-2 text-xs sm:text-sm">
+                                                <BookImage className="h-4 w-4 sm:h-5 sm:w-5" />
+                                                <span className="hidden sm:inline">Albums</span>
                                             </TabsTrigger>
                                         </TabsList>
 
@@ -939,9 +970,9 @@ export default function ProfilePage() {
                                                             <CardContent className="p-4">
                                                                 <div className="flex items-center gap-4">
                                                                     <div className="w-16 h-16 rounded-full overflow-hidden bg-slate-100">
-                                                                        {person.s3ImagePath ? (
+                                                                        {person.signedImageUrl ? (
                                                                             <img
-                                                                                src={person.s3ImagePath}
+                                                                                src={person.signedImageUrl}
                                                                                 alt={getFullName(person)}
                                                                                 className="w-full h-full object-cover"
                                                                                 onError={(e) => {

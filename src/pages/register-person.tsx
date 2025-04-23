@@ -57,43 +57,46 @@ export default function FaceRegistrationPage() {
 
     // Check if user is logged in
     useEffect(() => {
-        const verifyAuth = async () => {
+        const checkAuth = async () => {
             try {
-                // First check if we already know the auth status from the store
+                // First check store
                 if (isLoggedIn || isAdminLoggedIn) {
                     setIsAuthChecked(true);
+                    fetchAlbums();
                     return;
                 }
 
-                // Otherwise check with the server
-                await checkAuthStatus();
+                // If not in store, check with server
+                const authResult = await checkAuthStatus();
                 setIsAuthChecked(true);
+
+                if (!authResult) {
+                    router.push('/login?redirect=/register-person');
+                    return;
+                }
+
+                fetchAlbums();
             } catch (error) {
-                console.error('Error checking auth status:', error);
-                // If there's an error, we'll proceed anyway and let the API calls handle auth issues
-                setIsAuthChecked(true);
+                console.error('Auth check error:', error);
+                router.push('/login?redirect=/register-person');
             }
         };
 
-        verifyAuth();
-    }, [isLoggedIn, isAdminLoggedIn, checkAuthStatus]);
-
-    // Once auth is checked, verify if the user is logged in
-    useEffect(() => {
-        if (isAuthChecked && (!isLoggedIn || !isAdminLoggedIn)) {
-            toast.error('Please log in to register people');
-            router.push('/login?redirect=/register-person');
-        } else if (isAuthChecked && isLoggedIn) {
-            // If authenticated, fetch albums and continue with the normal flow
-            fetchAlbums();
-        }
-    }, [isAuthChecked, isLoggedIn, isAdminLoggedIn, router]);
+        checkAuth();
+    }, [isLoggedIn, isAdminLoggedIn, router, checkAuthStatus]);
 
     // Fetch user's albums
     const fetchAlbums = async () => {
         try {
             setIsLoading(true);
-            const response = await fetch('/api/albums/list');
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/api/albums/list?userId=${userId}`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -123,12 +126,22 @@ export default function FaceRegistrationPage() {
 
         try {
             setIsLoading(true);
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
             const response = await fetch('/api/albums/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ name: newAlbumName.trim() }),
+                body: JSON.stringify({
+                    name: newAlbumName.trim(),
+                    userId: userId
+                }),
             });
 
             if (response.ok) {
@@ -248,6 +261,15 @@ export default function FaceRegistrationPage() {
             return;
         }
 
+        const { userData, adminData } = useAuthStore.getState();
+        const userId = userData?.id || adminData?.id;
+
+        if (!userId) {
+            toast.error('Authentication error');
+            router.push('/login');
+            return;
+        }
+
         setIsLoading(true);
 
         try {
@@ -269,7 +291,8 @@ export default function FaceRegistrationPage() {
                     clan,
                     residentialPath,
                     albumId: selectedAlbumId,
-                    image: capturedImage
+                    image: capturedImage,
+                    userId: userId
                 }),
             });
 
@@ -330,8 +353,8 @@ export default function FaceRegistrationPage() {
 
                             <div className="mt-6">
                                 <Button
-                                    className="w-full"
-                                    variant="outline"
+                                    className="w-full border-gray"
+                                    variant="ghost"
                                     onClick={() => setShowCreateAlbumDialog(true)}
                                 >
                                     Create New Album
@@ -366,7 +389,7 @@ export default function FaceRegistrationPage() {
 
                             <div className="flex justify-center space-x-4 mb-6">
                                 <Button
-                                    variant={!uploadMode ? "default" : "outline"}
+                                    variant={!uploadMode ? "default" : "ghost"}
                                     onClick={() => setUploadMode(false)}
                                     className="flex items-center"
                                 >
@@ -374,7 +397,7 @@ export default function FaceRegistrationPage() {
                                     Use Camera
                                 </Button>
                                 <Button
-                                    variant={uploadMode ? "default" : "outline"}
+                                    variant={uploadMode ? "default" : "ghost"}
                                     onClick={() => setUploadMode(true)}
                                     className="flex items-center"
                                 >
@@ -409,7 +432,7 @@ export default function FaceRegistrationPage() {
 
                             <div className="flex justify-between mt-6">
                                 <Button
-                                    variant="outline"
+                                    variant="ghost"
                                     onClick={moveToPreviousStep}
                                 >
                                     Back
@@ -580,7 +603,7 @@ export default function FaceRegistrationPage() {
 
                             <div className="flex justify-between mt-6">
                                 <Button
-                                    variant="outline"
+                                    variant="ghost"
                                     onClick={moveToPreviousStep}
                                 >
                                     Back
@@ -732,7 +755,7 @@ export default function FaceRegistrationPage() {
 
             {/* Create Album Dialog */}
             <Dialog open={showCreateAlbumDialog} onOpenChange={setShowCreateAlbumDialog}>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="sm:max-w-md bg-white dark:bg-slate-800 text-black dark:text-white">
                     <DialogHeader>
                         <DialogTitle>Create New Album</DialogTitle>
                     </DialogHeader>
@@ -750,7 +773,7 @@ export default function FaceRegistrationPage() {
                     </div>
 
                     <DialogFooter className="flex space-x-2 justify-between">
-                        <Button variant="outline" onClick={() => setShowCreateAlbumDialog(false)}>
+                        <Button variant="ghost" className="border-gray" onClick={() => setShowCreateAlbumDialog(false)}>
                             <X size={16} className="mr-2" />
                             Cancel
                         </Button>

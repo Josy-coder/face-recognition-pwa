@@ -78,7 +78,14 @@ export default function AlbumDetailsPage() {
         setIsLoading(true);
 
         try {
-            const response = await fetch(`/api/albums/details?id=${id}`);
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/api/albums/details?id=${id}&userId=${userId}`);
 
             if (!response.ok) {
                 if (response.status === 401) {
@@ -117,7 +124,14 @@ export default function AlbumDetailsPage() {
         setIsDeleting(true);
 
         try {
-            const response = await fetch(`/api/albums/delete?id=${album.id}`, {
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const response = await fetch(`/api/albums/delete?id=${album.id}&userId=${userId}`, {
                 method: 'DELETE',
             });
 
@@ -247,9 +261,9 @@ export default function AlbumDetailsPage() {
 
                         <div className="flex space-x-2">
                             <Button
-                                variant="outline"
+                                variant="destructive"
                                 onClick={() => setShowDeleteDialog(true)}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                                className="text-black dark:text-white hover:text-red-600 hover:bg-red-50 border-red-200"
                             >
                                 <Trash2 size={16} className="mr-2" />
                                 Delete Album
@@ -374,7 +388,7 @@ export default function AlbumDetailsPage() {
 
             {/* Delete Album Confirmation Dialog */}
             <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-                <DialogContent>
+                <DialogContent className="bg-white dark:bg-slate-800 text-black dark:text-white">
                     <DialogHeader>
                         <DialogTitle>Delete Album</DialogTitle>
                         <DialogDescription>
@@ -391,7 +405,8 @@ export default function AlbumDetailsPage() {
                     </div>
                     <DialogFooter>
                         <Button
-                            variant="outline"
+                            variant="ghost"
+                            className="border-gray"
                             onClick={() => setShowDeleteDialog(false)}
                         >
                             Cancel

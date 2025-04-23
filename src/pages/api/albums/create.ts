@@ -1,7 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { verifyToken } from '@/lib/auth';
-import { parseCookies } from 'nookies';
 
 const prisma = new PrismaClient();
 
@@ -11,22 +9,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        // Get token from cookies
-        const cookies = parseCookies({ req });
-        const token = cookies.auth_token;
+        const { name, description, userId } = req.body;
 
-        if (!token) {
-            return res.status(401).json({ message: 'Unauthorized: Not logged in' });
+        if (!userId) {
+            return res.status(400).json({ message: 'User ID is required' });
         }
-
-        // Verify token
-        const decodedToken = verifyToken(token);
-
-        if (!decodedToken) {
-            return res.status(401).json({ message: 'Unauthorized: Invalid token' });
-        }
-
-        const { name, description } = req.body;
 
         if (!name) {
             return res.status(400).json({ message: 'Album name is required' });
@@ -35,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Check if user already has an album with the same name
         const existingAlbum = await prisma.album.findFirst({
             where: {
-                ownerId: decodedToken.userId,
+                ownerId: userId,
                 name: name
             }
         });
@@ -49,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             data: {
                 name,
                 description: description || '',
-                ownerId: decodedToken.userId
+                ownerId: userId
             }
         });
 

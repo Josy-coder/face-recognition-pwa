@@ -21,6 +21,7 @@ export interface UserData {
     gender?: string | null;
     dateOfBirth?: string | null;
     profileImageUrl?: string | null;
+    signedProfileImageUrl?: string | null;
     faceId?: string | null;
     residentialPath?: string | null;
     isEmailVerified?: boolean;
