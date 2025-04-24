@@ -1,7 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { verifyToken } from '@/lib/auth';
-import { parseCookies } from 'nookies';
 
 const prisma = new PrismaClient();
 
@@ -11,23 +9,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        // Get token from cookies
-        const cookies = parseCookies({ req });
-        const token = cookies.auth_token;
-
-        if (!token) {
-            return res.status(401).json({ message: 'Unauthorized: Not logged in' });
-        }
-
-        // Verify token
-        const decodedToken = verifyToken(token);
-
-        if (!decodedToken) {
-            return res.status(401).json({ message: 'Unauthorized: Invalid token' });
-        }
-
-        // Get the updated user data from request body
+        // Get userId directly from the request body
         const {
+            userId,
             firstName,
             middleName,
             lastName,
@@ -44,9 +28,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             residentialPath
         } = req.body;
 
+        // Check if userId is provided - it's required
+        if (!userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+
         // Update the user in the database
         const updatedUser = await prisma.user.update({
-            where: { id: decodedToken.userId },
+            where: { id: userId },
             data: {
                 firstName,
                 middleName,

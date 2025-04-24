@@ -18,8 +18,6 @@ import { useAuthStore } from '@/store/auth-store';
 // Define edit flow states
 enum EditFlowState {
     IDLE = 'idle',
-    LIVE_TEST = 'live_test',
-    VERIFY_FACE = 'verify_face',
     EDIT = 'edit'
 }
 
@@ -92,8 +90,8 @@ export default function ProfilePage() {
     const [albums, setAlbums] = useState<Album[]>([]);
     const [showCameraCapture, setShowCameraCapture] = useState(false);
     const [editFlowState, setEditFlowState] = useState<EditFlowState>(EditFlowState.IDLE);
-    const [, setCapturedImage] = useState<string | null>(null);
-    const [, setDidInitialFetch] = useState(false);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
+    const [didInitialFetch, setDidInitialFetch] = useState(false);
 
     // Form state for editing profile
     const [editedUser, setEditedUser] = useState<User | null>(null);
@@ -280,10 +278,9 @@ export default function ProfilePage() {
         router.push('/');
     };
 
-    // Start the edit profile flow
+    // Start the edit profile flow - directly go to edit mode
     const startEditFlow = () => {
-        setEditFlowState(EditFlowState.LIVE_TEST);
-        toast.info('Please complete a face verification to edit your profile');
+        setEditFlowState(EditFlowState.EDIT);
     };
 
     // Update profile picture
@@ -368,10 +365,21 @@ export default function ProfilePage() {
         setIsLoading(true);
 
         try {
-            // Include the selected location in the update
+            // Get the user ID from the auth store
+            const { userData, adminData } = useAuthStore.getState();
+            const userId = userData?.id || adminData?.id;
+
+            if (!userId) {
+                toast.error('Authentication error');
+                router.push('/login');
+                return;
+            }
+
+            // Include the selected location in the update and the userId
             const dataToUpdate = {
                 ...editedUser,
-                residentialPath: selectedLocation || editedUser.residentialPath
+                residentialPath: selectedLocation || editedUser.residentialPath,
+                userId: userId  // Include userId in the request body
             };
 
             const response = await fetch('/api/auth/update-profile', {
@@ -448,59 +456,11 @@ export default function ProfilePage() {
         return parts.length > 0 ? parts.join(' ') : 'No Name';
     };
 
+
+
     // Render content based on edit flow state
     const renderEditFlowContent = () => {
         switch (editFlowState) {
-            case EditFlowState.LIVE_TEST:
-                return (
-                    <Card className="mb-6">
-                        <CardHeader className="pb-3">
-                            <h3 className="text-lg font-medium">Verify Your Identity</h3>
-                            <p className="text-sm text-slate-500">
-                                For security, please take a clear photo of your face to proceed with profile editing.
-                            </p>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
-
-                                <SimpleCameraCapture onCapture={async (imageSrc) => {
-                                    try {
-                                        // Check if face is detected using the same approach as registration
-                                        const response = await fetch('/api/face-detection', {
-                                            method: 'POST',
-                                            headers: {
-                                                'Content-Type': 'application/json',
-                                            },
-                                            body: JSON.stringify({ image: imageSrc }),
-                                        });
-
-                                        const data = await response.json();
-
-                                        if (response.ok && data.faceDetails && data.faceDetails.length > 0) {
-                                            setCapturedImage(imageSrc);
-                                            // Skip the VERIFY_FACE step and go straight to EDIT
-                                            setEditFlowState(EditFlowState.EDIT);
-                                        } else {
-                                            toast.error('No face detected. Please try again with a clearer photo.');
-                                        }
-                                    } catch (error) {
-                                        console.error('Face detection error:', error);
-                                        toast.error('Error detecting face. Please try again.');
-                                    }
-                                }} />
-                            </div>
-                        </CardContent>
-                        <CardFooter className="flex justify-end space-x-2">
-                            <Button variant="ghost" className="border border-gray" onClick={cancelEdit}>
-                                Cancel
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                );
-
-            case EditFlowState.VERIFY_FACE:
-                return null;
-
             case EditFlowState.EDIT:
                 return editedUser ? (
                     <div className="space-y-6">
@@ -546,7 +506,8 @@ export default function ProfilePage() {
 
                                             <div className="mt-2 flex justify-end">
                                                 <Button
-                                                    variant="outline"
+                                                    variant="ghost"
+                                                    className="border-gray"
                                                     size="sm"
                                                     onClick={() => setShowCameraCapture(false)}
                                                 >
@@ -716,9 +677,9 @@ export default function ProfilePage() {
                                     <div className="space-y-2">
                                         <Label>Residential Location</Label>
                                         <FolderSelector
-                                            onFolderSelect={(folders) => {
-                                                if (folders.length > 0) {
-                                                    setSelectedLocation(folders[0]);
+                                            onSelect={(path) => {
+                                                if (path) {
+                                                    setSelectedLocation(path);
                                                 }
                                             }}
                                             initialSelected={selectedLocation ? [selectedLocation] : []}
@@ -728,7 +689,7 @@ export default function ProfilePage() {
                                 </div>
                             </CardContent>
                             <CardFooter className="flex justify-between bg-slate-50 px-6 py-4">
-                                <Button variant="outline" onClick={cancelEdit}>
+                                <Button variant="ghost" className="border-gray" onClick={cancelEdit}>
                                     <X size={16} className="mr-2" />
                                     Cancel
                                 </Button>

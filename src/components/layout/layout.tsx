@@ -213,7 +213,7 @@ export default function Layout({
             <footer className="bg-slate-50 dark:bg-slate-800 py-6 border-t border-slate-200 dark:border-slate-700 mt-auto">
                 <div className="container mx-auto px-4 text-center">
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Community Based Project © {new Date().getFullYear()} PNG PESS BOOK Limited
+                        PNG PESS BOOK © {new Date().getFullYear()} Minsoft
                     </p>
                 </div>
             </footer>

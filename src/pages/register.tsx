@@ -343,17 +343,11 @@ export default function AccountRegistrationPage() {
                                             }}
                                         />
 
-                                        {residentialPath && (
-                                            <div className="mt-2 text-sm text-slate-600">
-                                                <span className="font-medium">Selected location: </span>
-                                                <span className="italic">{residentialPath}</span>
-                                            </div>
+                                        {residentialPath && residentialPath.split('/').length < 3 && (
+                                            <p className="text-xs text-slate-500">
+                                                Please select the person&#39;s location down to at least the district level.
+                                            </p>
                                         )}
-
-
-                                        <p className="text-xs text-slate-500">
-                                            Please select your location down to at least the district level.
-                                        </p>
                                     </div>
                                 </div>
 
